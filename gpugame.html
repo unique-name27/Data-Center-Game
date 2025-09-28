@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Data Center Builder — Backplane Mode</title>
+  <style>
+    :root{ --page-pad:20px; --controls-h:120px; }
+    body{
+      margin:0; padding:var(--page-pad);
+      background:#0a0a12; color:#fff; font-family:Arial,Helvetica,sans-serif;
+      display:flex; flex-direction:column; align-items:center;
+    }
+    h1{ margin:0 0 8px 0; }
+    #status{ background:#141425; padding:10px; border-radius:8px; margin:8px 0;
+      border:1px solid #2c2c44; width:min(1200px,95vw) }
+    .error{color:#ff6b6b}.success{color:#51cf66}.warning{color:#ffd43b}
+    a{color:#7cfb7c}
+    #game-container{
+      width:min(95vw,1200px);
+      height:calc(95vh - var(--controls-h));
+      min-height:520px;
+      border:2px solid #2c2c44; position:relative; margin:10px 0 16px 0;
+      box-shadow:0 0 24px rgba(0,0,40,.4); overflow:hidden;
+    }
+    /* unmistakable bottom edge */
+    #game-container::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:#7a7a99; pointer-events:none; }
+    #instructions{max-width:880px;text-align:center;line-height:1.6}
+    .controls{background:#141425;padding:12px;border-radius:10px;margin:10px 0;border:1px solid #2c2c44}
+    .controls h3{margin-top:0;color:#7cfb7c}
+  </style>
+</head>
+<body>
+  <h1>Data Center Builder</h1>
+
+  <div id="status" class="warning">
+    <strong>Setup:</strong> The game will try local Phaser, then CDNs.
+  </div>
+
+  <div id="game-container"></div>
+
+  <div id="instructions">
+    <div class="controls">
+      <h3>🔧 If Phaser doesn’t load</h3>
+      <ol style="text-align:left;max-width:640px;margin:0 auto">
+        <li>Download <strong>phaser.min.js</strong> from <a href="https://phaser.io/download/stable" target="_blank">phaser.io/download/stable</a></li>
+        <li>Put it next to this HTML (or rely on CDNs below).</li>
+        <li>Use a small local server to avoid <code>file://</code> CORS quirks.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    /* ---------- Loader (local then CDNs) ---------- */
+    function updateStatus(message, className){
+      const statusDiv=document.getElementById('status');
+      statusDiv.innerHTML=message; statusDiv.className=className;
+    }
+    function loadPhaserScript(src, cb){
+      const s=document.createElement('script');
+      s.onload=()=>cb(true); s.onerror=()=>cb(false); s.src=src;
+      document.head.appendChild(s);
+    }
+    const phaserSources=[
+      './phaser.min.js','./phaser.js',
+      'https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js',
+      'https://unpkg.com/phaser@3.60.0/dist/phaser.min.js'
+    ];
+    let idx=0;
+    function tryLoadPhaser(){
+      if(idx>=phaserSources.length){
+        updateStatus('<strong class="error">❌ Could not load Phaser.js</strong><br>Download phaser.min.js and place it next to this HTML.<br><a href="https://phaser.io/download/stable" target="_blank">Download</a>','error');
+        return;
+      }
+      const src=phaserSources[idx];
+      updateStatus(`⏳ Loading Phaser… (${idx+1}/${phaserSources.length})<br>${src}`, 'warning');
+      loadPhaserScript(src,(ok)=>{
+        if(ok && typeof Phaser!=='undefined'){ updateStatus(`✅ Phaser v${Phaser.VERSION} loaded`, 'success'); initGame(); }
+        else { idx++; setTimeout(tryLoadPhaser,400); }
+      });
+    }
+
+    /* ==================== GAME ==================== */
+    function initGame(){
+      let bgGraphics, frameGraphics, wireGraphics, flowGraphics;
+      let components=[], lines=[];
+      let connectionMode=false, deleteMode=false;
+      let connectionTool, deleteTool, selectedNode=null;
+      let points=100, pointsText, elapsedTime=0, connectedCounterText, throughputText;
+      let theme='space', shootingStarsOn=true, backplaneOn=true;
+
+      const starfield={active:true,stars:[],shooting:[],width:800,height:800,nextShoot:0};
+
+      const MAX_CONNECTIONS_CPU=4;
+      const MAX_MEM_CONNECTIONS=8;
+      const MAX_GPUS_PER_SWITCH=8;
+      const MAX_CONNECTION_LENGTH=200;
+
+      const costs={ gpu:10, retimer:2, cpu:5, memory:5, switch:4, baseboard:2, memoryExpander:3, networking:3 };
+
+      const ASSETS={
+        gpu:"https://i.postimg.cc/mtN9HFfK/gpu.png",
+        retimer:"https://i.postimg.cc/dkykthjH/retimer.png",
+        cpu:"https://i.postimg.cc/3k8vCJ3N/cpu.png",
+        memory:"https://i.postimg.cc/Wd5J9L4n/memory.png",
+        baseboard:"https://i.postimg.cc/H80rXFKb/baseboard.png",
+        switch:"https://i.postimg.cc/64x77BH9/switch.png",
+        memoryExpander:"https://i.postimg.cc/67T4gj2N/memory-expander.png",
+        networking:"https://i.postimg.cc/t1fnj3Wn/networking.png"
+      };
+
+      // Valid part↔part pairings (also used for part↔port via nodeKind)
+      const ALLOWED={
+        gpu:["cpu","switch"],
+        memory:["cpu","switch","memoryExpander"],
+        memoryExpander:["cpu","switch"],
+        networking:["cpu","networking","switch"],
+        cpu:["gpu","memory","memoryExpander","networking","switch"],
+        switch:["gpu","memory","memoryExpander","cpu","networking"]
+      };
+
+      // Port layout per baseboard (dx,dy) and group
+      const PORT_LAYOUT = {
+        cpu:            [[-50,-90],[0,-90],[50,-90]],
+        gpu:            [[-90,-60],[-90,-20],[-90,20],[-90,60]],
+        memory:         [[90,-60],[90,-20],[90,20],[90,60]],
+        switch:         [[-40,90],[0,90],[40,90]],
+        networking:     [[-70,110],[70,110]],
+        memoryExpander: [[120,-20],[120,20]]
+      };
+
+      const TYPE_COLOR = {
+        gpu:0x00ff9c, cpu:0x66a3ff, memory:0xffe066,
+        switch:0xff9f66, networking:0x66fff5, memoryExpander:0xff66ff, baseboard:0x9aa0aa
+      };
+
+      const GREEN=0x19ff6e, GRAY=0x9aa3ad, RED=0xff4d4d;
+
+      /* ---------- Helpers ---------- */
+      function formatPoints(n){ const a=Math.abs(n); if(a<1e3)return n.toFixed(0); if(a<1e6)return (n/1e3).toFixed(1)+'k'; return (n/1e6).toFixed(1)+'m'; }
+      const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+      const nodeKind=(n)=> n.isPort ? n.group : n.type;
+      function canPair(a,b){
+        const A=nodeKind(a), B=nodeKind(b);
+        return (ALLOWED[A] && ALLOWED[A].includes(B)) || (ALLOWED[B] && ALLOWED[B].includes(A));
+      }
+      const portBelongsToBase=(n,base)=> n.isPort && n.baseboard===base;
+
+      /* ---------- Scene ---------- */
+      function preload(){
+        if(this.load.setCrossOrigin) this.load.setCrossOrigin('anonymous');
+        for(const [k,u] of Object.entries(ASSETS)) this.load.image(k,u);
+      }
+
+      /* ===== BACKGROUND / THEMES ===== */
+      function setTheme(newTheme, scene){
+        theme=newTheme; starfield.active=(theme==='space'); bgGraphics.clear();
+        if(theme==='space'){ scene.cameras.main.setBackgroundColor('#060611'); initStarfield(true, scene.scale.width, scene.scale.height); }
+        else if(theme==='grid'){ scene.cameras.main.setBackgroundColor('#000'); drawGridBackground(scene.scale.width,scene.scale.height); }
+        else { scene.cameras.main.setBackgroundColor('#000'); }
+      }
+      function initStarfield(reset=false, W=800, H=800){
+        starfield.width=W; starfield.height=H;
+        if(reset){ starfield.stars=[]; starfield.shooting=[]; }
+        if(starfield.stars.length===0){
+          const layers=[ {count:90, speed:12, size:1.2}, {count:60, speed:28, size:1.8}, {count:30, speed:50, size:2.2} ];
+          for(const L of layers) for(let i=0;i<L.count;i++)
+            starfield.stars.push({ x:Math.random()*W, y:Math.random()*H, vx:-L.speed*(0.8+Math.random()*0.4), vy:L.speed*0.10, sz:L.size, a:0.6+Math.random()*0.4 });
+          starfield.nextShoot = performance.now() + 1000 + Math.random()*2000;
+        }
+      }
+      function drawStarfield(dtMs){
+        const W=starfield.width, H=starfield.height, dt=dtMs/1000;
+        bgGraphics.clear(); bgGraphics.fillStyle(0x0b0b18,1); bgGraphics.fillRect(0,0,W,H);
+        for(const s of starfield.stars){
+          s.x+=s.vx*dt; s.y+=s.vy*dt;
+          if(s.x<-4||s.y>H+4){ s.x=W+4*Math.random(); s.y=-4+Math.random()*H*0.3; }
+          bgGraphics.fillStyle(0xffffff, s.a); bgGraphics.fillCircle(s.x,s.y,s.sz);
+        }
+        if(shootingStarsOn && performance.now()>=starfield.nextShoot){
+          const ang=Phaser.Math.DegToRad(210+Math.random()*10), spd=500+Math.random()*350;
+          const x0=W*0.6+Math.random()*W*0.4, y0=-20-Math.random()*80;
+          starfield.shooting.push({x:x0,y:y0,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,life:900});
+          starfield.nextShoot=performance.now()+(1200+Math.random()*2200);
+        }
+        const alive=[];
+        for(const sh of starfield.shooting){
+          sh.life-=dtMs; sh.x+=sh.vx*dt; sh.y+=sh.vy*dt;
+          const tx=sh.x-sh.vx*0.06, ty=sh.y-sh.vy*0.06;
+          bgGraphics.lineStyle(2,0x9cc7ff,0.9); bgGraphics.beginPath();
+          bgGraphics.moveTo(sh.x,sh.y); bgGraphics.lineTo(tx,ty); bgGraphics.strokePath();
+          if(sh.life>0&&sh.x>-50&&sh.y>-50&&sh.x<W+50&&sh.y<H+50) alive.push(sh);
+        }
+        starfield.shooting=alive;
+      }
+      function drawGridBackground(W, H){
+        bgGraphics.clear(); bgGraphics.lineStyle(1,0x222,1);
+        const gridSize=50;
+        for(let x=0;x<W;x+=gridSize){ bgGraphics.moveTo(x,0); bgGraphics.lineTo(x,H); }
+        for(let y=0;y<H;y+=gridSize){ bgGraphics.moveTo(0,y); bgGraphics.lineTo(W,y); }
+        bgGraphics.strokePath();
+      }
+
+      /* ===== PORT SYSTEM ===== */
+      function createPortsForBaseboard(base, scene){
+        base.ports=[];
+        for(const [group, arr] of Object.entries(PORT_LAYOUT)){
+          for(const [dx,dy] of arr){
+            base.ports.push({ isPort:true, group, baseboard:base, dx, dy, x:base.x+dx, y:base.y+dy });
+          }
+        }
+      }
+      function refreshPortPositions(base){
+        if(!base.ports) return;
+        for(const p of base.ports){ p.x=base.x+p.dx; p.y=base.y+p.dy; }
+      }
+      function nearestCompatiblePort(base, part, tx, ty){
+        if(!base || !base.ports) return null;
+        let best=null, bestD=Infinity;
+        for(const p of base.ports){
+          if(!canPair(p, part)) continue;
+          const d=Math.hypot(p.x-tx, p.y-ty);
+          if(d<bestD){ bestD=d; best=p; }
+        }
+        return best;
+      }
+
+      /* ===== RETIMER ===== */
+      function projectPointToSegment(px,py, x1,y1,x2,y2){
+        const vx=x2-x1, vy=y2-y1, wx=px-x1, wy=py-y1;
+        const c2=vx*vx+vy*vy; if(c2===0) return {t:0, dist:Math.hypot(px-x1,py-y1), x:x1, y:y1};
+        const t=Math.max(0,Math.min(1,(wx*vx+wy*vy)/c2));
+        const x=x1+t*vx, y=y1+t*vy, d=Math.hypot(px-x,py-y);
+        return {t,dist:d,x,y};
+      }
+      function nearestLineForPoint(px,py){
+        let best=null, bestD=999;
+        for(const L of lines){
+          const pr=projectPointToSegment(px,py, L.start.x,L.start.y, L.end.x,L.end.y);
+          if(pr.dist<bestD){ bestD=pr.dist; best={line:L,t:pr.t,dist:pr.dist}; }
+        }
+        return best;
+      }
+      function attachRetimerToLine(retimer, line, t){
+        if(retimer.onLine){
+          const old=retimer.onLine; old.retimers=(old.retimers||[]).filter(r=>r!==retimer);
+          retimer.onLine=null; retimer.t=null;
+        }
+        if(!line.retimers) line.retimers=[];
+        line.retimers.push(retimer); retimer.onLine=line; retimer.t=t; redrawEverything();
+      }
+      function detachRetimer(retimer){
+        if(retimer.onLine){
+          retimer.onLine.retimers=(retimer.onLine.retimers||[]).filter(r=>r!==retimer);
+          retimer.onLine=null; retimer.t=null; redrawEverything();
+        }
+      }
+
+      /* ===== VALIDATION / LINES ===== */
+      function countPartConnections(part, typeFilter=null){
+        return lines.filter(L=>{
+          if(!L.ok) return false;
+          if(L.start===part || L.end===part){
+            if(!typeFilter) return true;
+            const other = (L.start===part)?L.end:L.start;
+            return nodeKind(other)===typeFilter;
+          }
+          return false;
+        }).length;
+      }
+      function connectionLimitExceeded(a,b){
+        const check=(n)=>{
+          if(!n.isPart) return false;
+          if(n.type==='cpu'    && countPartConnections(n) >= MAX_CONNECTIONS_CPU) return true;
+          if(n.type==='switch' && countPartConnections(n) >= MAX_GPUS_PER_SWITCH) return true;
+          if(n.type==='memoryExpander' && countPartConnections(n,'memory') >= MAX_MEM_CONNECTIONS) return true;
+          return false;
+        };
+        return check(a)||check(b);
+      }
+      const maxLenWithRetimers=(L)=>((L?.retimers||[]).length+1)*MAX_CONNECTION_LENGTH;
+
+      function lineIsValidGeneric(a,b,L=null){
+        if(a===b) return {ok:false, reason:'same-node'};
+        if(a.isPort && b.isPort) return {ok:false, reason:'port-port'};
+        if(!canPair(a,b)) return {ok:false, reason:'type'};
+        if(connectionLimitExceeded(a,b)) return {ok:false, reason:'limit'};
+        if(dist(a,b)>maxLenWithRetimers(L)) return {ok:false, reason:'length'};
+        return {ok:true};
+      }
+
+      // Rebind ports to nearest compatible one if needed
+      function rebindBaseboardEndpointIfNeeded(a,b){
+        if(a.isPort && b.isPart && !canPair(a,b)){
+          const repl = nearestCompatiblePort(a.baseboard, b, b.x, b.y);
+          if(repl) a=repl;
+        }
+        if(b.isPort && a.isPart && !canPair(a,b)){
+          const repl = nearestCompatiblePort(b.baseboard, a, a.x, a.y);
+          if(repl) b=repl;
+        }
+        return [a,b];
+      }
+
+      function addLine(a,b){
+        [a,b]=rebindBaseboardEndpointIfNeeded(a,b);
+        const L={start:a,end:b, ok:false, reason:null, retimers:[]};
+        const check=lineIsValidGeneric(a,b,L);
+        L.ok=check.ok; L.reason=check.reason||null;
+        lines.push(L);
+        redrawEverything();
+      }
+
+      /* ===== WORKING STATE / METRICS ===== */
+      function buildAdjacency(filterFn){
+        // include nodes via components + endpoints on lines
+        const nodes=new Set();
+        for(const c of components){ if(filterFn(c)) nodes.add(c); }
+        for(const L of lines){
+          if(filterFn(L.start)) nodes.add(L.start);
+          if(filterFn(L.end))   nodes.add(L.end);
+        }
+        const adj=new Map(); nodes.forEach(n=>adj.set(n, []));
+        for(const L of lines){
+          if(!L.ok) continue;
+          if(adj.has(L.start) && adj.has(L.end)){
+            adj.get(L.start).push(L.end); adj.get(L.end).push(L.start);
+          }
+        }
+        return adj;
+      }
+
+      // New: add virtual “backplane” edges connecting all ports on the same baseboard (star)
+      function addBackplaneEdges(adj, filterFn){
+        if(!backplaneOn) return adj;
+        const bases = components.filter(n=>n.isPart && n.type==='baseboard');
+        for(const base of bases){
+          const ports = (base.ports||[]).filter(p=>filterFn(p) && adj.has(p));
+          if(ports.length<=1) continue;
+          const hub = ports[0];
+          for(let i=1;i<ports.length;i++){
+            const p=ports[i];
+            adj.get(hub).push(p); adj.get(p).push(hub);
+          }
+        }
+        return adj;
+      }
+
+      function anyReachable(start, adj, predicate){
+        const q=[start], seen=new Set([start]);
+        while(q.length){
+          const n=q.shift();
+          if(predicate(n)) return true;
+          for(const nb of (adj.get(n)||[])){ if(!seen.has(nb)){ seen.add(nb); q.push(nb); } }
+        }
+        return false;
+      }
+      const endpointBase=(e)=> e.isPort ? e.baseboard : (e.isPart ? e.attachedTo : null);
+
+      // Attach a part to a base if it can reach ANY of its ports via valid wires (backplane not needed here)
+      function recomputeAttachments(){
+        const baseboards = components.filter(n=>n.isPart && n.type==='baseboard');
+        for(const part of components.filter(n=>n.isPart && n.type!=='baseboard')){
+          part.attachedTo=null;
+          for(const base of baseboards){
+            const inBase = (x)=> x===base || (x.isPart && x.type!=='baseboard') || portBelongsToBase(x, base);
+            const adj=buildAdjacency(inBase);
+            if(anyReachable(part, adj, (n)=> portBelongsToBase(n, base))){ part.attachedTo=base; break; }
+          }
+        }
+      }
+
+      function lineIsWorking(L){
+        if(!L.ok) return false;
+        const b1 = endpointBase(L.start), b2 = endpointBase(L.end);
+        return b1 && b2 && b1===b2;
+      }
+
+      /* ===== DRAW ===== */
+      const wireColor=(L)=> !L.ok ? RED : (lineIsWorking(L)?GREEN:GRAY);
+
+      // packet flow on working wires
+      let flowOffsetPx=0; const FLOW_SPEED=120, FLOW_SPACING=28;
+      function drawFlow(dtSec){
+        flowOffsetPx=(flowOffsetPx+FLOW_SPEED*dtSec)%FLOW_SPACING;
+        flowGraphics.clear();
+        for(const L of lines){
+          if(!lineIsWorking(L)) continue;
+          const x1=L.start.x,y1=L.start.y, x2=L.end.x,y2=L.end.y;
+          const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy); if(len<1) continue;
+          const ux=dx/len, uy=dy/len, startS=-flowOffsetPx;
+          for(let s=startS;s<=len;s+=FLOW_SPACING){
+            if(s<0) continue;
+            flowGraphics.fillStyle(GREEN,1);
+            flowGraphics.fillCircle(x1+ux*s, y1+uy*s, 2.5);
+          }
+        }
+      }
+
+      function recomputeMetrics(){
+        const connectedSet=new Set();
+        for(const L of lines){ if(L.ok){ if(L.start.isPart) connectedSet.add(L.start); if(L.end.isPart) connectedSet.add(L.end); } }
+        connectedCounterText.setText("Connected Parts: "+connectedSet.size);
+
+        // Throughput: For each baseboard, if backplane ON, ports are virtually connected.
+        let total=0;
+        const baseboards=components.filter(n=>n.isPart && n.type==='baseboard');
+        for(const base of baseboards){
+          const inBase=(n)=> n===base || (n.isPart && n.attachedTo===base) || portBelongsToBase(n, base);
+          let adj=buildAdjacency(inBase);
+          adj=addBackplaneEdges(adj, inBase); // <= virtual backplane when ON
+
+          for(const g of components.filter(n=>n.isPart && n.type==='gpu' && n.attachedTo===base)){
+            const hasCPU=anyReachable(g, adj, n=>n.isPart&&n.type==='cpu'&&n.attachedTo===base);
+            const hasMEM=anyReachable(g, adj, n=>n.isPart&&n.type==='memory'&&n.attachedTo===base);
+            if(hasCPU && hasMEM) total++;
+          }
+        }
+        throughputText.setText(`Throughput: ${total} u/s`);
+      }
+
+      // fix stray center wires
+      function scrubLinesToBaseCenter(){
+        for(const L of lines){
+          if(L.start.isPart && L.start.type==='baseboard' && L.end.isPart){
+            const port = nearestCompatiblePort(L.start, L.end, L.end.x, L.end.y);
+            if(port) L.start = port;
+          }
+          if(L.end.isPart && L.end.type==='baseboard' && L.start.isPart){
+            const port = nearestCompatiblePort(L.end, L.start, L.start.x, L.start.y);
+            if(port) L.end = port;
+          }
+        }
+      }
+
+      function redrawEverything(){
+        // keep port coords in sync
+        for(const base of components.filter(n=>n.isPart && n.type==='baseboard')) refreshPortPositions(base);
+
+        // auto-fix any stray center wires before validating
+        scrubLinesToBaseCenter();
+
+        // validate lines
+        for(const L of lines){
+          const check=lineIsValidGeneric(L.start,L.end,L);
+          L.ok=check.ok; L.reason=check.reason||null;
+        }
+
+        // recompute attachments before coloring/flow
+        recomputeAttachments();
+
+        wireGraphics.clear();
+        frameGraphics.clear();
+        frameGraphics.lineStyle(2,0x2c2c44,1);
+        frameGraphics.strokeRect(1,1,game.scale.width-2,game.scale.height-2);
+
+        // subtle baseboard outline
+        for(const base of components.filter(n=>n.isPart && n.type==='baseboard')){
+          wireGraphics.lineStyle(1,0x444a66,1);
+          wireGraphics.strokeRect(base.x-40, base.y-30, 80, 60);
+        }
+
+        // wires
+        for(const L of lines){
+          wireGraphics.lineStyle(3, wireColor(L), 1);
+          wireGraphics.beginPath(); wireGraphics.moveTo(L.start.x,L.start.y); wireGraphics.lineTo(L.end.x,L.end.y); wireGraphics.strokePath();
+
+          // retimers stay on line param t
+          if(L.retimers && L.retimers.length){
+            for(const r of L.retimers){
+              if(r._dragging) continue;
+              r.x=L.start.x + r.t*(L.end.x-L.start.x);
+              r.y=L.start.y + r.t*(L.end.y-L.start.y);
+            }
+          }
+        }
+
+        recomputeMetrics();
+      }
+
+      /* ===== CREATE SCENE ===== */
+      function create(){
+        const scene=this;
+
+        // graphics layers
+        bgGraphics    = scene.add.graphics().setDepth(-10);
+        frameGraphics = scene.add.graphics().setDepth(-1);
+        wireGraphics  = scene.add.graphics().setDepth(0);
+        flowGraphics  = scene.add.graphics().setDepth(1);
+
+        // Theme controls
+        const themeButtons=[
+          scene.add.text(20,10,"[ Space ]",{font:"16px Arial",fill:"#7cfb7c"}).setInteractive().setDepth(1001),
+          scene.add.text(110,10,"[ Grid ]",{font:"16px Arial",fill:"#fff"}).setInteractive().setDepth(1001),
+          scene.add.text(185,10,"[ Plain ]",{font:"16px Arial",fill:"#fff"}).setInteractive().setDepth(1001),
+        ];
+        let shootToggle=scene.add.text(270,10,"★ Shooting: ON",{font:"16px Arial",fill:"#ffd43b"}).setInteractive().setDepth(1001);
+
+        // NEW: Backplane toggle
+        let backplaneToggle=scene.add.text(420,10,"Backplane: ON",{font:"16px Arial",fill:"#7cfb7c"}).setInteractive().setDepth(1001);
+
+        function refreshTopUI(){
+          const map={space:0,grid:1,plain:2};
+          themeButtons.forEach((t,i)=>t.setFill(i===map[theme]?"#7cfb7c":"#fff"));
+          shootToggle.setFill(shootingStarsOn?"#ffd43b":"#666").setText(`★ Shooting: ${shootingStarsOn?"ON":"OFF"}`);
+          backplaneToggle.setText(`Backplane: ${backplaneOn?"ON":"OFF"}`).setFill(backplaneOn?"#7cfb7c":"#aaa");
+        }
+        themeButtons[0].on("pointerdown",()=>{setTheme('space',scene);refreshTopUI();});
+        themeButtons[1].on("pointerdown",()=>{setTheme('grid',scene);refreshTopUI();drawGridBackground(scene.scale.width,scene.scale.height);});
+        themeButtons[2].on("pointerdown",()=>{setTheme('plain',scene);refreshTopUI();});
+        shootToggle.on("pointerdown",()=>{shootingStarsOn=!shootingStarsOn;refreshTopUI();});
+        backplaneToggle.on("pointerdown",()=>{ backplaneOn=!backplaneOn; refreshTopUI(); redrawEverything(); });
+
+        // Stats & tools
+        connectedCounterText=scene.add.text(20,34,"Connected Parts: 0",{font:"18px Arial",fill:"#fff"}).setDepth(1001);
+        throughputText=scene.add.text(20,56,"Throughput: 0 u/s",{font:"18px Arial",fill:"#7cfb7c"}).setDepth(1001);
+        pointsText=scene.add.text(0,10,"Points: "+formatPoints(points),{font:"16px Arial",fill:"#ffff88"}).setOrigin(1,0).setDepth(1001);
+
+        connectionTool=scene.add.text(0,10,"[ Connect ]",{font:"16px Arial",fill:"#fff"}).setInteractive().setDepth(1001);
+        deleteTool    =scene.add.text(0,34,"[ Delete ]",{font:"16px Arial",fill:"#fff"}).setInteractive().setDepth(1001);
+        const resetBtn=scene.add.text(0,58,"Reset",{font:"14px Arial",fill:"#7cfb7c"}).setOrigin(1,0).setInteractive().setDepth(1001);
+
+        const exitConnect=()=>{ connectionMode=false; connectionTool.setFill("#fff"); if(selectedNode&&selectedNode.clearTint) selectedNode.clearTint(); selectedNode=null; };
+        const exitDelete =()=>{ deleteMode=false; deleteTool.setFill("#fff"); };
+        connectionTool.on("pointerdown",()=>{ const next=!connectionMode; connectionMode=next; deleteMode=false; connectionTool.setFill(next?"#7cfb7c":"#fff"); deleteTool.setFill("#fff"); if(!next) { if(selectedNode&&selectedNode.clearTint) selectedNode.clearTint(); selectedNode=null; }});
+        deleteTool.on("pointerdown",()=>{ const next=!deleteMode; deleteMode=next; connectionMode=false; connectionTool.setFill("#fff"); deleteTool.setFill(next?"#7cfb7c":"#fff"); if(selectedNode&&selectedNode.clearTint) selectedNode.clearTint(); selectedNode=null; });
+
+        // Shop
+        const shop={icons:[],labels:[],data:[]};
+        function iconOrRect(key, rectSize, rectColor, scale=0.5){
+          return scene.textures.exists(key) ? scene.add.image(0,0,key).setScale(scale).setInteractive().setDepth(5)
+                                            : scene.add.rectangle(0,0,rectSize,rectSize,rectColor).setInteractive().setDepth(5);
+        }
+        function addShopItem(key,label,cost){
+          const size=(key==='baseboard'?60:(key==='retimer'?20:40));
+          const scale=(key==='baseboard'?0.9:(key==='retimer'?0.35:0.5));
+          const color=TYPE_COLOR[key]||0xcccccc;
+          const icon=iconOrRect(key,size,color,scale);
+          const txt=scene.add.text(0,0,`${label}\n$${cost}`,{font:"13px Arial",fill:"#ddd"}).setOrigin(0.5,0).setDepth(6);
+          shop.icons.push(icon); shop.labels.push(txt); shop.data.push({key,cost});
+          return icon;
+        }
+        const gpuI=addShopItem('gpu','GPU',costs.gpu);
+        const retI=addShopItem('retimer','Retimer',costs.retimer);
+        const cpuI=addShopItem('cpu','CPU',costs.cpu);
+        const memI=addShopItem('memory','Memory',costs.memory);
+        const swI =addShopItem('switch','Switch',costs.switch);
+        const bbI =addShopItem('baseboard','Base',costs.baseboard);
+        const mxI =addShopItem('memoryExpander','MemExp',costs.memoryExpander);
+        const nwI =addShopItem('networking','Net',costs.networking);
+
+        function spawnComponent(type){
+          const W=scene.scale.width, H=scene.scale.height;
+          const finalScale=(type==='baseboard'?1.25:(type==='retimer'?0.25:0.5));
+          const rx=Phaser.Math.Between(80,Math.max(120,W-80));
+          const ry=Phaser.Math.Between(110,Math.max(180,H-140));
+
+          let obj;
+          if(scene.textures.exists(type)) obj=scene.add.image(rx,ry,type).setScale(0).setInteractive().setDepth(2);
+          else {
+            const size=(type==='baseboard'?70:(type==='retimer'?15:32)); const color=TYPE_COLOR[type]||0xffffff;
+            obj=scene.add.rectangle(rx,ry,size,size,color).setScale(0).setInteractive().setDepth(2);
+          }
+          obj.isPart=true; obj.type=type; obj.attachedTo=null;
+          if(type==='retimer'){ obj.onLine=null; obj.t=null; obj._dragging=false; }
+
+          // Baseboard: only port-based connecting; DO NOT allow the baseboard itself as an endpoint
+          if(type==='baseboard'){
+            createPortsForBaseboard(obj, scene);
+            obj.on('pointerdown', (p)=>{
+              if(!connectionMode) return;
+              const other=selectedNode && selectedNode.isPart ? selectedNode : null;
+              if(other){
+                const port=nearestCompatiblePort(obj, other, p.worldX, p.worldY);
+                if(!port) return;
+                if(!selectedNode){ selectedNode=port; return; }
+                if(selectedNode!==port){
+                  addLine(selectedNode.isPart?selectedNode:port, selectedNode.isPart?port:selectedNode);
+                }
+                if(selectedNode && selectedNode.clearTint) selectedNode.clearTint();
+                selectedNode=null;
+              }else{
+                // pick nearest port first; second click may rebind if incompatible
+                let best=null,bestD=Infinity;
+                for(const p2 of obj.ports){ const d=Math.hypot(p.worldX-p2.x,p.worldY-p2.y); if(d<bestD){bestD=d; best=p2;} }
+                if(best) selectedNode=best;
+              }
+            });
+          } else {
+            // Regular part click in connect mode
+            obj.on('pointerdown', ()=>{
+              if(deleteMode){
+                if(obj.type==='retimer'){ detachRetimer(obj); obj.destroy(); components=components.filter(c=>c!==obj); redrawEverything(); }
+                return;
+              }
+              if(!connectionMode) return;
+              if(obj.type==='retimer') return;
+              if(!selectedNode){ selectedNode=obj; if(obj.setTint) obj.setTint(0x88ff88); return; }
+              if(selectedNode===obj) return;
+              addLine(selectedNode, obj);
+              if(selectedNode && selectedNode.clearTint) selectedNode.clearTint();
+              selectedNode=null;
+            });
+          }
+
+          scene.input.setDraggable(obj);
+          components.push(obj);
+          obj.setDepth(type==='baseboard'?-1:2);
+          scene.tweens.add({targets:obj,scale:finalScale,ease:"Bounce.easeOut",duration:420});
+          return obj;
+        }
+
+        function layoutUI(){
+          const W=scene.scale.width, H=scene.scale.height;
+          pointsText.setPosition(W-20,10);
+          connectionTool.setPosition(W-220,10);
+          deleteTool.setPosition(W-220,34);
+          resetBtn.setPosition(W-20,58);
+
+          const n=shop.icons.length, y=H-32;
+          for(let i=0;i<n;i++){
+            const x=(W/(n+1))*(i+1);
+            shop.icons[i].setPosition(x,y);
+            shop.labels[i].setPosition(x,y+14);
+          }
+
+          frameGraphics.clear();
+          frameGraphics.lineStyle(2,0x2c2c44,1);
+          frameGraphics.strokeRect(1,1,W-2,H-2);
+
+          starfield.width=W; starfield.height=H;
+          if(theme==='grid') drawGridBackground(W,H);
+        }
+
+        // buy & reset
+        function autoExitTools(){ connectionMode=false; deleteMode=false; connectionTool.setFill("#fff"); deleteTool.setFill("#fff"); if(selectedNode&&selectedNode.clearTint) selectedNode.clearTint(); selectedNode=null; }
+        function tryBuy(type,cost){ if(points>=cost){ points-=cost; spawnComponent(type); redrawEverything(); autoExitTools(); } }
+        [gpuI,retI,cpuI,memI,swI,bbI,mxI,nwI].forEach((icon,i)=> icon.on("pointerdown",()=>tryBuy(shop.data[i].key,shop.data[i].cost)) );
+
+        resetBtn.on("pointerdown", ()=>{
+          points=100; elapsedTime=0;
+          components.forEach(c=>c.destroy());
+          components=[]; lines=[];
+          autoExitTools(); redrawEverything();
+        });
+
+        // Delete wires by clicking near them
+        function deleteLineNear(x,y){
+          const TH=10;
+          function ptSegDist(px,py,x1,y1,x2,y2){
+            const vx=x2-x1, vy=y2-y1, wx=px-x1, wy=py-y1;
+            const c1=wx*vx+wy*vy; if(c1<=0) return Math.hypot(px-x1,py-y1);
+            const c2=vx*vx+vy*vy; if(c2<=c1) return Math.hypot(px-x2,py-y2);
+            const t=c1/c2, projx=x1+t*vx, projy=y1+t*vy; return Math.hypot(px-projx,py-projy);
+          }
+          for(let i=0;i<lines.length;i++){
+            const L=lines[i]; const d=ptSegDist(x,y, L.start.x,L.start.y, L.end.x,L.end.y);
+            if(d<=TH){ (L.retimers||[]).forEach(r=>{ r.onLine=null; r.t=null; }); lines.splice(i,1); redrawEverything(); return true; }
+          }
+          return false;
+        }
+        scene.input.on('pointerdown', (pointer)=>{ if(deleteMode) deleteLineNear(pointer.worldX, pointer.worldY); });
+
+        // Dragging (parts) + retimers sit on wires
+        scene.input.on('dragstart', (_p, obj)=>{ if(obj.type==='retimer'){ obj._dragging=true; if(obj.onLine) detachRetimer(obj); } });
+        scene.input.on('drag', (_p, obj, dx, dy)=>{
+          if(obj.isPart){
+            obj.x=dx; obj.y=dy;
+            if(obj.type==='baseboard') refreshPortPositions(obj);
+            redrawEverything();
+          }
+        });
+        scene.input.on('dragend', (_p, obj)=>{
+          if(obj.type==='retimer'){
+            obj._dragging=false;
+            const best=nearestLineForPoint(obj.x,obj.y);
+            if(best && best.dist<=12 && best.t>0.06 && best.t<0.94) attachRetimerToLine(obj,best.line,best.t);
+            else redrawEverything();
+          }
+        });
+
+        // initial state
+        setTheme('space',scene); refreshTopUI(); initStarfield(true,scene.scale.width,scene.scale.height);
+        // seed with one baseboard
+        tryBuy('baseboard',0);
+        layoutUI(); redrawEverything();
+        document.getElementById('instructions').style.display='none';
+
+        // resize
+        scene.scale.on('resize', gs=>{ layoutUI(); if(theme==='grid') drawGridBackground(gs.width,gs.height); redrawEverything(); });
+      }
+
+      function update(_time, delta){
+        const dt=delta/1000;
+        elapsedTime+=dt; points-=1*dt;
+        pointsText.setText("Points: "+formatPoints(points));
+        if(theme==='space' && starfield.active) drawStarfield(delta);
+        drawFlow(dt);
+      }
+
+      const config={
+        type:Phaser.AUTO,
+        backgroundColor:"#000",
+        parent:'game-container',
+        scale:{ mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
+        scene:{ preload, create, update },
+      };
+      const game=new Phaser.Game(config);
+    }
+
+    tryLoadPhaser();
+  </script>
+</body>
+</html>
