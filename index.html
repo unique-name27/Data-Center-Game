@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Data Center Builder — Money Economy</title>
+  <title>Data Center Builder — Money Economy (Fixed Shop Layout)</title>
   <style>
     :root{ --page-pad:20px; --controls-h:120px; }
     body{
@@ -630,6 +630,18 @@
           return obj;
         }
 
+        /* ---------- SHOP ROW AUTO-PLACEMENT (no clipping) ---------- */
+        function computeShopRowY(sceneRef) {
+          const bottomPad = 18;   // distance from bottom frame
+          const labelPad  = 26;   // space reserved for the label under each icon
+          let maxHalfIcon = 0;
+          for (const icon of shop.icons) {
+            const h = icon.displayHeight || icon.height || 40;
+            maxHalfIcon = Math.max(maxHalfIcon, h / 2);
+          }
+          return sceneRef.scale.height - (maxHalfIcon + labelPad + bottomPad);
+        }
+
         function layoutUI(){
           const W=scene.scale.width, H=scene.scale.height;
           moneyText.setPosition(W-20,10);
@@ -637,16 +649,25 @@
           deleteTool.setPosition(W-220,34);
           resetBtn.setPosition(W-20,58);
 
-          const n=shop.icons.length, y=H-32;
+          // Auto-computed safe Y for icons (prevents clipping)
+          const n=shop.icons.length;
+          const y=computeShopRowY(scene);
+
           for(let i=0;i<n;i++){
+            const icon=shop.icons[i];
+            const label=shop.labels[i];
             const x=(W/(n+1))*(i+1);
-            shop.icons[i].setPosition(x,y);
-            shop.labels[i].setPosition(x,y+14);
+
+            icon.setPosition(x,y);
+
+            // Label sits just under the icon, still inside the frame
+            const iconHalf=(icon.displayHeight || icon.height || 40)/2;
+            label.setPosition(x, y + iconHalf + 6);
           }
 
           frameGraphics.clear();
           frameGraphics.lineStyle(2,0x2c2c44,1);
-          frameGraphics.strokeRect(1,1,W-2,H-2);
+          frameGraphics.strokeRect(1,1,game.scale.width-2,game.scale.height-2);
 
           starfield.width=W; starfield.height=H;
           if(theme==='grid') drawGridBackground(W,H);
