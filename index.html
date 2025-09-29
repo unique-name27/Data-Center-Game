@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Data Center Builder — Backplane Mode</title>
+  <title>Data Center Builder — Money Economy</title>
   <style>
     :root{ --page-pad:20px; --controls-h:120px; }
     body{
@@ -23,7 +23,7 @@
       border:2px solid #2c2c44; position:relative; margin:10px 0 16px 0;
       box-shadow:0 0 24px rgba(0,0,40,.4); overflow:hidden;
     }
-    /* unmistakable bottom edge */
+    /* distinct bottom border */
     #game-container::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:#7a7a99; pointer-events:none; }
     #instructions{max-width:880px;text-align:center;line-height:1.6}
     .controls{background:#141425;padding:12px;border-radius:10px;margin:10px 0;border:1px solid #2c2c44}
@@ -87,8 +87,11 @@
       let components=[], lines=[];
       let connectionMode=false, deleteMode=false;
       let connectionTool, deleteTool, selectedNode=null;
-      let points=100, pointsText, elapsedTime=0, connectedCounterText, throughputText;
-      let theme='space', shootingStarsOn=true, backplaneOn=true;
+
+      let money=100, moneyText, elapsedTime=0, connectedCounterText, throughputText;
+      let currentThroughput=0;
+
+      let theme='space', shootingStarsOn=true, backplaneOn=true, economyOn=false; // economy default OFF (free build)
 
       const starfield={active:true,stars:[],shooting:[],width:800,height:800,nextShoot:0};
 
@@ -98,6 +101,9 @@
       const MAX_CONNECTION_LENGTH=200;
 
       const costs={ gpu:10, retimer:2, cpu:5, memory:5, switch:4, baseboard:2, memoryExpander:3, networking:3 };
+
+      const incomePerGPU = 5;   // money/sec per working GPU (economy ON)
+      const baseIncome   = 0.25;// tiny trickle (economy ON)
 
       const ASSETS={
         gpu:"https://i.postimg.cc/mtN9HFfK/gpu.png",
@@ -138,7 +144,12 @@
       const GREEN=0x19ff6e, GRAY=0x9aa3ad, RED=0xff4d4d;
 
       /* ---------- Helpers ---------- */
-      function formatPoints(n){ const a=Math.abs(n); if(a<1e3)return n.toFixed(0); if(a<1e6)return (n/1e3).toFixed(1)+'k'; return (n/1e6).toFixed(1)+'m'; }
+      function formatMoney(n){
+        const a=Math.abs(n);
+        if(a<1e3) return n.toFixed(0);
+        if(a<1e6) return (n/1e3).toFixed(1)+'k';
+        return (n/1e6).toFixed(1)+'m';
+      }
       const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
       const nodeKind=(n)=> n.isPort ? n.group : n.type;
       function canPair(a,b){
@@ -331,7 +342,7 @@
         return adj;
       }
 
-      // New: add virtual “backplane” edges connecting all ports on the same baseboard (star)
+      // Backplane: add virtual edges connecting ports on the same baseboard
       function addBackplaneEdges(adj, filterFn){
         if(!backplaneOn) return adj;
         const bases = components.filter(n=>n.isPart && n.type==='baseboard');
@@ -358,7 +369,6 @@
       }
       const endpointBase=(e)=> e.isPort ? e.baseboard : (e.isPart ? e.attachedTo : null);
 
-      // Attach a part to a base if it can reach ANY of its ports via valid wires (backplane not needed here)
       function recomputeAttachments(){
         const baseboards = components.filter(n=>n.isPart && n.type==='baseboard');
         for(const part of components.filter(n=>n.isPart && n.type!=='baseboard')){
@@ -403,13 +413,13 @@
         for(const L of lines){ if(L.ok){ if(L.start.isPart) connectedSet.add(L.start); if(L.end.isPart) connectedSet.add(L.end); } }
         connectedCounterText.setText("Connected Parts: "+connectedSet.size);
 
-        // Throughput: For each baseboard, if backplane ON, ports are virtually connected.
+        // Throughput: For each baseboard, backplane optionally connects ports virtually.
         let total=0;
         const baseboards=components.filter(n=>n.isPart && n.type==='baseboard');
         for(const base of baseboards){
           const inBase=(n)=> n===base || (n.isPart && n.attachedTo===base) || portBelongsToBase(n, base);
           let adj=buildAdjacency(inBase);
-          adj=addBackplaneEdges(adj, inBase); // <= virtual backplane when ON
+          adj=addBackplaneEdges(adj, inBase); // virtual backplane when ON
 
           for(const g of components.filter(n=>n.isPart && n.type==='gpu' && n.attachedTo===base)){
             const hasCPU=anyReachable(g, adj, n=>n.isPart&&n.type==='cpu'&&n.attachedTo===base);
@@ -417,6 +427,7 @@
             if(hasCPU && hasMEM) total++;
           }
         }
+        currentThroughput = total;
         throughputText.setText(`Throughput: ${total} u/s`);
       }
 
@@ -480,6 +491,8 @@
       }
 
       /* ===== CREATE SCENE ===== */
+      let refreshAffordability = ()=>{}; // set inside create so update() can call it
+
       function create(){
         const scene=this;
 
@@ -497,25 +510,31 @@
         ];
         let shootToggle=scene.add.text(270,10,"★ Shooting: ON",{font:"16px Arial",fill:"#ffd43b"}).setInteractive().setDepth(1001);
 
-        // NEW: Backplane toggle
+        // Backplane toggle
         let backplaneToggle=scene.add.text(420,10,"Backplane: ON",{font:"16px Arial",fill:"#7cfb7c"}).setInteractive().setDepth(1001);
+
+        // Economy toggle (default OFF / free build)
+        let economyToggle=scene.add.text(560,10,"Economy: OFF",{font:"16px Arial",fill:"#aaa"})
+          .setInteractive().setDepth(1001);
 
         function refreshTopUI(){
           const map={space:0,grid:1,plain:2};
           themeButtons.forEach((t,i)=>t.setFill(i===map[theme]?"#7cfb7c":"#fff"));
           shootToggle.setFill(shootingStarsOn?"#ffd43b":"#666").setText(`★ Shooting: ${shootingStarsOn?"ON":"OFF"}`);
           backplaneToggle.setText(`Backplane: ${backplaneOn?"ON":"OFF"}`).setFill(backplaneOn?"#7cfb7c":"#aaa");
+          economyToggle.setText(`Economy: ${economyOn?"ON":"OFF"}`).setFill(economyOn?"#7cfb7c":"#aaa");
         }
         themeButtons[0].on("pointerdown",()=>{setTheme('space',scene);refreshTopUI();});
         themeButtons[1].on("pointerdown",()=>{setTheme('grid',scene);refreshTopUI();drawGridBackground(scene.scale.width,scene.scale.height);});
         themeButtons[2].on("pointerdown",()=>{setTheme('plain',scene);refreshTopUI();});
         shootToggle.on("pointerdown",()=>{shootingStarsOn=!shootingStarsOn;refreshTopUI();});
         backplaneToggle.on("pointerdown",()=>{ backplaneOn=!backplaneOn; refreshTopUI(); redrawEverything(); });
+        economyToggle.on("pointerdown",()=>{ economyOn=!economyOn; refreshTopUI(); refreshAffordability(); });
 
         // Stats & tools
         connectedCounterText=scene.add.text(20,34,"Connected Parts: 0",{font:"18px Arial",fill:"#fff"}).setDepth(1001);
         throughputText=scene.add.text(20,56,"Throughput: 0 u/s",{font:"18px Arial",fill:"#7cfb7c"}).setDepth(1001);
-        pointsText=scene.add.text(0,10,"Points: "+formatPoints(points),{font:"16px Arial",fill:"#ffff88"}).setOrigin(1,0).setDepth(1001);
+        moneyText=scene.add.text(0,10,"Money: $"+formatMoney(money),{font:"16px Arial",fill:"#ffff88"}).setOrigin(1,0).setDepth(1001);
 
         connectionTool=scene.add.text(0,10,"[ Connect ]",{font:"16px Arial",fill:"#fff"}).setInteractive().setDepth(1001);
         deleteTool    =scene.add.text(0,34,"[ Delete ]",{font:"16px Arial",fill:"#fff"}).setInteractive().setDepth(1001);
@@ -565,7 +584,7 @@
           obj.isPart=true; obj.type=type; obj.attachedTo=null;
           if(type==='retimer'){ obj.onLine=null; obj.t=null; obj._dragging=false; }
 
-          // Baseboard: only port-based connecting; DO NOT allow the baseboard itself as an endpoint
+          // Baseboard: only port-based connecting
           if(type==='baseboard'){
             createPortsForBaseboard(obj, scene);
             obj.on('pointerdown', (p)=>{
@@ -581,14 +600,14 @@
                 if(selectedNode && selectedNode.clearTint) selectedNode.clearTint();
                 selectedNode=null;
               }else{
-                // pick nearest port first; second click may rebind if incompatible
+                // baseboard clicked first: nearest port (second click may rebind)
                 let best=null,bestD=Infinity;
                 for(const p2 of obj.ports){ const d=Math.hypot(p.worldX-p2.x,p.worldY-p2.y); if(d<bestD){bestD=d; best=p2;} }
                 if(best) selectedNode=best;
               }
             });
           } else {
-            // Regular part click in connect mode
+            // Part click in connect mode
             obj.on('pointerdown', ()=>{
               if(deleteMode){
                 if(obj.type==='retimer'){ detachRetimer(obj); obj.destroy(); components=components.filter(c=>c!==obj); redrawEverything(); }
@@ -613,7 +632,7 @@
 
         function layoutUI(){
           const W=scene.scale.width, H=scene.scale.height;
-          pointsText.setPosition(W-20,10);
+          moneyText.setPosition(W-20,10);
           connectionTool.setPosition(W-220,10);
           deleteTool.setPosition(W-220,34);
           resetBtn.setPosition(W-20,58);
@@ -634,15 +653,34 @@
         }
 
         // buy & reset
-        function autoExitTools(){ connectionMode=false; deleteMode=false; connectionTool.setFill("#fff"); deleteTool.setFill("#fff"); if(selectedNode&&selectedNode.clearTint) selectedNode.clearTint(); selectedNode=null; }
-        function tryBuy(type,cost){ if(points>=cost){ points-=cost; spawnComponent(type); redrawEverything(); autoExitTools(); } }
-        [gpuI,retI,cpuI,memI,swI,bbI,mxI,nwI].forEach((icon,i)=> icon.on("pointerdown",()=>tryBuy(shop.data[i].key,shop.data[i].cost)) );
+        const autoExitTools=()=>{ connectionMode=false; deleteMode=false; connectionTool.setFill("#fff"); deleteTool.setFill("#fff"); if(selectedNode&&selectedNode.clearTint) selectedNode.clearTint(); selectedNode=null; };
+
+        function tryBuy(type,cost,labelEl){
+          if(!economyOn || money>=cost){
+            if(economyOn) money -= cost;
+            spawnComponent(type);
+            redrawEverything();
+            autoExitTools(); // exit connect mode after purchase
+          }else{
+            // Feedback: flash label red & bounce
+            if(labelEl){
+              labelEl.setColor("#ff6b6b");
+              labelEl.scene.tweens.add({
+                targets: labelEl, y: labelEl.y - 8, yoyo: true, duration: 120,
+                onComplete: () => labelEl.setColor("#ddd")
+              });
+            }
+          }
+          refreshShopAffordability();
+        }
+
+        [gpuI,retI,cpuI,memI,swI,bbI,mxI,nwI].forEach((icon,i)=> icon.on("pointerdown",()=>tryBuy(shop.data[i].key,shop.data[i].cost,shop.labels[i])) );
 
         resetBtn.on("pointerdown", ()=>{
-          points=100; elapsedTime=0;
+          money=100; elapsedTime=0;
           components.forEach(c=>c.destroy());
           components=[]; lines=[];
-          autoExitTools(); redrawEverything();
+          autoExitTools(); redrawEverything(); refreshShopAffordability();
         });
 
         // Delete wires by clicking near them
@@ -680,11 +718,22 @@
           }
         });
 
+        // affordability control (economy ON only)
+        function refreshShopAffordability(){
+          for(let i=0;i<shop.icons.length;i++){
+            const cost=shop.data[i].cost;
+            const affordable = (!economyOn) || (money >= cost);
+            shop.icons[i].setAlpha(affordable ? 1 : 0.45);
+            shop.labels[i].setAlpha(affordable ? 1 : 0.55);
+          }
+        }
+        refreshAffordability = refreshShopAffordability;
+
         // initial state
         setTheme('space',scene); refreshTopUI(); initStarfield(true,scene.scale.width,scene.scale.height);
-        // seed with one baseboard
+        // seed with one baseboard (free in default mode)
         tryBuy('baseboard',0);
-        layoutUI(); redrawEverything();
+        layoutUI(); redrawEverything(); refreshShopAffordability();
         document.getElementById('instructions').style.display='none';
 
         // resize
@@ -693,10 +742,20 @@
 
       function update(_time, delta){
         const dt=delta/1000;
-        elapsedTime+=dt; points-=1*dt;
-        pointsText.setText("Points: "+formatPoints(points));
+        elapsedTime+=dt;
+
+        // Money economy: only when economy ON
+        if(economyOn){
+          money += (currentThroughput * incomePerGPU + baseIncome) * dt;
+          if(money < 0) money = 0;
+        }
+
+        moneyText.setText("Money: $"+formatMoney(money));
         if(theme==='space' && starfield.active) drawStarfield(delta);
         drawFlow(dt);
+
+        // keep shop visuals in sync
+        refreshAffordability();
       }
 
       const config={
