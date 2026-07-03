@@ -1,7 +1,8 @@
 'use strict';
-/* Data Center Tycoon — Connectivity Edition (pixel art)
-   A teaching game about the chips that move data, told at three scales:
-   inside the server -> the rack -> the row.
+/* Data Center Tycoon — Connectivity Edition (paper cutout style)
+   A teaching game about the chips that move data, told at four scales:
+   inside the server -> the rack -> the row -> the whole data center.
+   Construction-paper cartoon look: every device is a little character.
    All graphics are drawn procedurally on canvas — no image assets. */
 
 /* ---------------- constants ---------------- */
@@ -13,11 +14,17 @@ const FAIL = 30;               // signal health below this = dead link
 const LS_KEY = 'dct_progress_v2';
 
 const PAL = {
-  bg: '#0b0d14', ink: '#0f1120', dark: '#12141f', steel: '#333c57',
-  lite: '#566c86', hi: '#94b0c2', green: '#38b764', greenHi: '#8dffb8',
-  red: '#e05555', amber: '#f5c542', copper: '#b7653a', gold: '#d0a03f',
-  teal: '#2f7a5c', tealHi: '#4aa87c', purp: '#5d3f8f', purpHi: '#8f6ac2',
-  blue: '#3b5dc9', dim: '#3a3f55'
+  sky: '#7ec8e3', shadow: 'rgba(40,30,20,.28)',
+  ink: '#212121', white: '#fff8e7',
+  green: '#43d15f', amber: '#fdd835', red: '#e53935',
+  orange: '#fb8c00', blue: '#1e88e5', purple: '#8e24aa', purpleD: '#6a1b9a',
+  teal: '#26a69a', brown: '#795548', gray: '#90a4ae', grayD: '#546e7a',
+  paperGreen: '#4caf50', paperGreenD: '#2e7d32', beige: '#e8d9b5', gold: '#d9a326'
+};
+const BODY = {
+  gpu: PAL.orange, cpu: PAL.blue, mem: PAL.amber, server: PAL.teal,
+  tor: PAL.purple, leaf: PAL.purple, spine: PAL.purpleD, rk: PAL.brown,
+  rw: '#e53935', spine2: PAL.purpleD, dci: '#263238'
 };
 
 /* ---------------- scales ---------------- */
@@ -130,49 +137,49 @@ const CAT = {
 
 const CAB = {
   trace: {
-    scale: 'board', name: 'PCIe trace', cost: 5, watts: 0.5, loss: 25, color: PAL.gold, retime: true,
+    scale: 'board', name: 'PCIe trace', cost: 5, watts: 0.5, loss: 25, color: '#e0a030', retime: true,
     tag: 'Copper etched right into the board',
     desc: 'A copper trace is nearly free — but at PCIe Gen6 speeds the signal smears out fast (25% health per tile). Long runs need retimer chips placed along the route.',
     real: 'Past ~30 cm of board copper at Gen5/Gen6, designers reach for a retimer. That’s why they sit on motherboards and riser cards.'
   },
   dac1: {
-    scale: 'rack', name: 'Copper DAC', cost: 150, watts: 0.2, loss: 20, color: PAL.copper, retime: true,
+    scale: 'rack', name: 'Copper DAC', cost: 150, watts: 0.2, loss: 20, color: '#e07030', retime: true,
     tag: 'Cheap, cool… and short',
     desc: 'Direct-attach copper: a passive twinax cable. Nearly free and burns almost no power, but health drops 20% per tile. Fine for short in-rack hops; long runs need retimers or an AEC.',
     real: 'At 100+ Gb/s per lane, passive copper reaches only ~2–3 meters.'
   },
   aec1: {
-    scale: 'rack', name: 'Active electrical cable (AEC)', cost: 900, watts: 6, loss: 6, color: '#3fc8c8', retime: false,
+    scale: 'rack', name: 'Active electrical cable (AEC)', cost: 900, watts: 6, loss: 6, color: '#00bfa5', retime: false,
     tag: 'Copper with retimers built in',
     desc: 'An AEC is a copper cable with a retimer chip inside each connector shell, constantly cleaning the signal — only 6% loss per tile. Compare its price to placing loose retimers along a DAC.',
     real: 'AECs are one of the fastest-growing connectivity products — built around retimer silicon from companies like Astera Labs, Marvell and Broadcom.'
   },
   dac2: {
-    scale: 'row', name: 'Copper DAC', cost: 150, watts: 0.2, loss: 25, color: PAL.copper, retime: true,
+    scale: 'row', name: 'Copper DAC', cost: 150, watts: 0.2, loss: 25, color: '#e07030', retime: true,
     tag: 'Short hops only at row scale',
     desc: 'The same passive copper, but row distances are brutal: 25% health per tile. Use it rack-to-leaf when they’re adjacent, retime it, or move up to AEC/optics.',
     real: 'Operators use copper everywhere they can — it’s the cheapest watt in the building.'
   },
   aec2: {
-    scale: 'row', name: 'Active electrical cable (AEC)', cost: 900, watts: 6, loss: 6, color: '#3fc8c8', retime: false,
+    scale: 'row', name: 'Active electrical cable (AEC)', cost: 900, watts: 6, loss: 6, color: '#00bfa5', retime: false,
     tag: 'The mid-range workhorse',
     desc: 'Retimed copper: 6% loss per tile at a fraction of optics’ power and cost. The sweet spot for most in-row runs.',
     real: 'Inside each connector shell is the same retimer chip you placed by hand at board scale.'
   },
   opt: {
-    scale: 'row', name: 'Optical link', cost: 2500, watts: 14, loss: 1.5, color: '#5aa7ff', retime: false,
+    scale: 'row', name: 'Optical link', cost: 2500, watts: 14, loss: 1.5, color: '#42a5f5', retime: false,
     tag: 'Longest reach, biggest bill',
     desc: 'Optical transceivers convert electrons to light — only 1.5% loss per tile, but every link burns 14 W and costs real money. Lasers also fail more often than copper.',
     real: 'Optics can dominate the network power budget of a large AI cluster.'
   },
   mmf: {
-    scale: 'dc', name: 'Multimode optics', cost: 1800, watts: 11, loss: 4.5, color: '#4ad2e0', retime: false,
+    scale: 'dc', name: 'Multimode optics', cost: 1800, watts: 11, loss: 4.5, color: '#26c6da', retime: false,
     tag: 'Aqua fiber for inside the hall',
     desc: 'Multimode fiber uses cheap VCSEL lasers — the budget optic. But the light bounces around inside the wide core, so reach is limited: 4.5% loss per tile. Great inside the hall, hopeless for the long haul.',
     real: 'Multimode is the aqua-jacketed cable in every data center photo. At high speeds it reaches ~50–100 m.'
   },
   smf: {
-    scale: 'dc', name: 'Single-mode optics', cost: 4500, watts: 16, loss: 0.6, color: '#f0e05a', retime: false,
+    scale: 'dc', name: 'Single-mode optics', cost: 4500, watts: 16, loss: 0.6, color: '#fdd835', retime: false,
     tag: 'Yellow fiber for the long haul',
     desc: 'Single-mode fiber carries one clean beam down a hair-thin core — only 0.6% loss per tile, at a premium for the precision lasers. This is what crosses buildings and leaves them.',
     real: 'Single-mode is the yellow-jacketed cable. It reaches 500 m to 10 km and beyond — all DCI runs on it.'
@@ -197,7 +204,7 @@ const LEVELS = [
     goals: [{ text: 'Bring 2 GPUs online', check: s => s.stats.online >= 2 }],
     lesson: `<h2>First light</h2>
       <p>Zoom all the way in. Before there are data centers, there is a <b>circuit board</b>: a CPU, its memory, and empty PCIe slots.</p>
-      <p>Place two <b>GPUs</b> near the CPU and wire each one up with a <b>PCIe trace</b> (click the GPU, then the CPU). The gold pulses are your data moving over bare copper.</p>
+      <p>Place two <b>GPUs</b> near the CPU and wire each one up with a <b>PCIe trace</b> (click the GPU, then the CPU). The pulses are your data moving over bare copper.</p>
       <p class="tip">A GPU is online when it has a healthy trace to the CPU — and the CPU has memory attached (already wired for you).</p>`
   },
   {
@@ -416,7 +423,7 @@ function say(msg) { toast = { msg, until: performance.now() + 2600 }; }
 function tryPlaceEnt(type, i, j) {
   const spec = CAT[type];
   if (entAt(i, j) || retAt(i, j)) return say('That spot is occupied.');
-  if (S.money < spec.cost) return say('Not enough budget.');
+  if (S.money < spec.cost) return say('Not enough budget. Money doesn’t grow on trees!');
   S.money -= spec.cost;
   S.ents.push({ id: idSeq++, type, i, j });
   recompute();
@@ -427,7 +434,7 @@ function tryPlaceRet(i, j) {
   if (retAt(i, j)) return say('There is already a retimer here.');
   if (!S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j)))
     return say('Place retimers on a bare copper route. (AECs and optics have their own built in.)');
-  if (S.money < rs.cost) return say('Not enough budget.');
+  if (S.money < rs.cost) return say('Not enough budget. Money doesn’t grow on trees!');
   S.money -= rs.cost;
   S.retimers.push({ i, j });
   recompute();
@@ -447,7 +454,7 @@ function tryCable(type, A, B) {
   if (portCount(A) >= CAT[A.type].ports) return say(`${CAT[A.type].name} is out of ports.`);
   if (portCount(B) >= CAT[B.type].ports) return say(`${CAT[B.type].name} is out of ports.`);
   const spec = CAB[type];
-  if (S.money < spec.cost) return say('Not enough budget.');
+  if (S.money < spec.cost) return say('Not enough budget. Money doesn’t grow on trees!');
   S.money -= spec.cost;
   S.cables.push({ id: idSeq++, type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 });
   recompute();
@@ -497,199 +504,328 @@ function thingAt(x, y) {
   return null;
 }
 
-/* ---------------- canvas ---------------- */
+/* ---------------- canvas + paper helpers ---------------- */
 const cvs = document.getElementById('game');
 const ctx = cvs.getContext('2d');
-function R(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
-function outline(x, y, w, h, c, t2) {
-  const t = t2 || 2;
-  R(x, y, w, t, c); R(x, y + h - t, w, t, c); R(x, y, t, h, c); R(x + w - t, y, t, h, c);
+function R(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+function hash(n) { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); }
+function jit(seed, k, amp) { return (hash(seed * 7.13 + k * 3.71) * 2 - 1) * amp; }
+function paperPts(x, y, w, h, seed, amp) {
+  const a = amp || 2.5;
+  const P = [];
+  const push = (px, py, k) => P.push([px + jit(seed, k, a), py + jit(seed, k + 57, a)]);
+  push(x, y, 1); push(x + w / 2, y, 2); push(x + w, y, 3); push(x + w, y + h / 2, 4);
+  push(x + w, y + h, 5); push(x + w / 2, y + h, 6); push(x, y + h, 7); push(x, y + h / 2, 8);
+  return P;
 }
+function fillPoly(P, color, ox2, oy2) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(P[0][0] + (ox2 || 0), P[0][1] + (oy2 || 0));
+  for (let k = 1; k < P.length; k++) ctx.lineTo(P[k][0] + (ox2 || 0), P[k][1] + (oy2 || 0));
+  ctx.closePath(); ctx.fill();
+}
+function paperRect(x, y, w, h, color, seed, amp, noShadow) {
+  const P = paperPts(x, y, w, h, seed, amp);
+  if (!noShadow) fillPoly(P, PAL.shadow, 3, 4);
+  fillPoly(P, color);
+  return P;
+}
+function strokePaper(x, y, w, h, color, seed, width) {
+  const P = paperPts(x, y, w, h, seed || 1, 2);
+  ctx.strokeStyle = color; ctx.lineWidth = width || 3; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(P[0][0], P[0][1]);
+  for (let k = 1; k < P.length; k++) ctx.lineTo(P[k][0], P[k][1]);
+  ctx.closePath(); ctx.stroke();
+}
+function paperCircle(x, y, r, color, seed, noShadow) {
+  const n = 9, P = [];
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const rr = r + jit(seed, k, r * 0.12);
+    P.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+  }
+  if (!noShadow) fillPoly(P, PAL.shadow, 2, 3);
+  fillPoly(P, color);
+}
+function circle(x, y, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+}
+/* mood: 'happy' | 'idle' | 'worry'  opts: {glasses, brows, lids, alien, s} */
+function face(x, y, mood, seed, t, opts) {
+  const o = opts || {}, s = o.s || 1;
+  const ew = 8 * s, gap = 9 * s;
+  const blink = ((t * 0.45 + hash(seed) * 4) % 4) < 0.09;
+  if (o.alien) {
+    ctx.fillStyle = PAL.ink;
+    [[-gap, 0], [gap, 0]].forEach(([dx]) => {
+      ctx.beginPath(); ctx.ellipse(x + dx, y, 5.5 * s, 8 * s, dx > 0 ? 0.5 : -0.5, 0, Math.PI * 2); ctx.fill();
+    });
+  } else {
+    circle(x - gap, y, ew, '#ffffff'); circle(x + gap, y, ew, '#ffffff');
+    if (blink) {
+      ctx.strokeStyle = PAL.ink; ctx.lineWidth = 2 * s;
+      ctx.beginPath(); ctx.moveTo(x - gap - 5 * s, y); ctx.lineTo(x - gap + 5 * s, y);
+      ctx.moveTo(x + gap - 5 * s, y); ctx.lineTo(x + gap + 5 * s, y); ctx.stroke();
+    } else {
+      const lx = Math.sin(t * 0.7 + seed) * 2 * s;
+      circle(x - gap + lx, y + 1, 2.6 * s, PAL.ink); circle(x + gap + lx, y + 1, 2.6 * s, PAL.ink);
+    }
+    if (o.lids) {
+      ctx.fillStyle = o.lidColor || PAL.amber;
+      ctx.beginPath(); ctx.arc(x - gap, y - 2 * s, ew, Math.PI, 0); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + gap, y - 2 * s, ew, Math.PI, 0); ctx.fill();
+    }
+    if (o.glasses) {
+      ctx.strokeStyle = PAL.ink; ctx.lineWidth = 2.5 * s;
+      ctx.strokeRect(x - gap - 7 * s, y - 6 * s, 14 * s, 12 * s);
+      ctx.strokeRect(x + gap - 7 * s, y - 6 * s, 14 * s, 12 * s);
+      ctx.beginPath(); ctx.moveTo(x - gap + 7 * s, y); ctx.lineTo(x + gap - 7 * s, y); ctx.stroke();
+    }
+    if (o.brows) {
+      ctx.strokeStyle = PAL.ink; ctx.lineWidth = 3 * s; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x - gap - 6 * s, y - 11 * s); ctx.lineTo(x - gap + 5 * s, y - 7 * s);
+      ctx.moveTo(x + gap + 6 * s, y - 11 * s); ctx.lineTo(x + gap - 5 * s, y - 7 * s);
+      ctx.stroke();
+    }
+  }
+  const my = y + 12 * s;
+  ctx.strokeStyle = PAL.ink; ctx.lineWidth = 2.5 * s; ctx.lineCap = 'round';
+  if (mood === 'happy') {
+    ctx.beginPath(); ctx.arc(x, my - 2 * s, 7 * s, 0.25, Math.PI - 0.25); ctx.stroke();
+  } else if (mood === 'worry') {
+    ctx.fillStyle = PAL.ink;
+    ctx.beginPath(); ctx.ellipse(x, my + 1, 4.5 * s, 6 * s, 0, 0, Math.PI * 2); ctx.fill();
+    const drop = (t * 40 + hash(seed) * 20) % 26;
+    ctx.fillStyle = '#4fc3f7';
+    ctx.beginPath(); ctx.ellipse(x + 17 * s, y - 6 * s + drop, 3 * s, 4.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(x - 5 * s, my); ctx.lineTo(x + 5 * s, my); ctx.stroke();
+  }
+}
+function mood(e) {
+  if (e.online) return 'happy';
+  if (S.cables.some(c => c.a === e.id || c.b === e.id)) return 'worry';
+  return 'idle';
+}
+function bounce(e, t) { return e.online ? Math.sin(t * 4 + e.id) * 2.5 : 0; }
 function healthColor(h) { return h >= 65 ? PAL.green : h >= FAIL ? PAL.amber : PAL.red; }
 
 /* ---------------- backgrounds ---------------- */
+function tape(x, y, rot, seed) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.globalAlpha = 0.75;
+  paperRect(-24, -9, 48, 18, PAL.beige, seed, 2, true);
+  ctx.globalAlpha = 1; ctx.restore();
+}
+function crayonLine(x1, y1, x2, y2, color, width, seed) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1 + jit(seed, 1, 2), y1 + jit(seed, 2, 2));
+  const mx = (x1 + x2) / 2 + jit(seed, 3, 3), my = (y1 + y2) / 2 + jit(seed, 4, 3);
+  ctx.quadraticCurveTo(mx, my, x2 + jit(seed, 5, 2), y2 + jit(seed, 6, 2));
+  ctx.stroke();
+}
+function sheet(color, seed) {
+  R(0, 0, CW, CH, PAL.sky);
+  paperRect(OX - 28, OY - 28, GRID_W * T + 56, GRID_H * T + 56, color, seed, 6);
+  tape(OX - 10, OY - 20, -0.5, seed + 1); tape(OX + GRID_W * T + 10, OY - 20, 0.45, seed + 2);
+  tape(OX - 10, OY + GRID_H * T + 20, 0.55, seed + 3); tape(OX + GRID_W * T + 10, OY + GRID_H * T + 20, -0.4, seed + 4);
+}
+function gridLines(color) {
+  ctx.globalAlpha = 0.28;
+  for (let i = 1; i < GRID_W; i++) crayonLine(gx(i), OY, gx(i), OY + GRID_H * T, color, 2, i * 3.3);
+  for (let j = 1; j < GRID_H; j++) crayonLine(OX, gy(j), OX + GRID_W * T, gy(j), color, 2, j * 5.7 + 100);
+  ctx.globalAlpha = 1;
+}
 function drawBoardBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  R(OX - 24, OY - 24, GRID_W * T + 48, GRID_H * T + 48, '#0f2818');
-  outline(OX - 24, OY - 24, GRID_W * T + 48, GRID_H * T + 48, '#1d4030', 3);
-  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
-    R(gx(i) + 1, gy(j) + 1, T - 2, T - 2, (i + j) % 2 ? '#123020' : '#14351f');
-  for (let i = 0; i <= GRID_W; i++) for (let j = 0; j <= GRID_H; j++)
-    R(gx(i) - 2, gy(j) - 2, 4, 4, '#1d4030');
-  [[OX - 16, OY - 16], [OX + GRID_W * T + 4, OY - 16], [OX - 16, OY + GRID_H * T + 4], [OX + GRID_W * T + 4, OY + GRID_H * T + 4]]
-    .forEach(([x, y]) => { R(x, y, 12, 12, PAL.bg); outline(x, y, 12, 12, '#3a5a48', 2); });
+  sheet(PAL.paperGreen, 11);
+  gridLines('#1b5e20');
+  for (let k = 0; k < 4; k++)
+    paperCircle(OX + 30 + k * ((GRID_W * T - 60) / 3), OY - 14, 6, '#1b5e20', 40 + k, true);
 }
 function drawRackBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  R(OX - 30, OY - 20, GRID_W * T + 60, GRID_H * T + 40, '#171b26');
-  R(OX - 30, OY - 20, 16, GRID_H * T + 40, '#3a4358');
-  R(OX + GRID_W * T + 14, OY - 20, 16, GRID_H * T + 40, '#3a4358');
+  sheet('#b0bec5', 22);
+  paperRect(OX - 20, OY - 16, 18, GRID_H * T + 32, PAL.grayD, 23, 3);
+  paperRect(OX + GRID_W * T + 2, OY - 16, 18, GRID_H * T + 32, PAL.grayD, 24, 3);
   for (let j = 0; j <= GRID_H; j++) {
-    R(OX - 26, OY + j * T - 2 + (j ? -T / 2 : T / 2) * 0, 8, 4, PAL.ink);
-    R(OX + GRID_W * T + 18, OY + j * T - 2, 8, 4, PAL.ink);
-    R(OX - 26, OY + j * T - 2, 8, 4, PAL.ink);
+    circle(OX - 11, OY + j * T, 3.5, PAL.ink);
+    circle(OX + GRID_W * T + 11, OY + j * T, 3.5, PAL.ink);
   }
-  for (let j = 0; j < GRID_H; j++)
-    R(OX - 14, OY + (j + 1) * T - 1, GRID_W * T + 28, 2, '#20263a');
-  R(OX - 30, OY - 20, GRID_W * T + 60, 6, PAL.lite);
+  ctx.globalAlpha = 0.3;
+  for (let j = 1; j < GRID_H; j++) crayonLine(OX, gy(j), OX + GRID_W * T, gy(j), '#37474f', 2.5, j * 4.1);
+  ctx.globalAlpha = 1;
 }
 function drawRowBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
-    R(gx(i), gy(j), T, T, (i + j) % 2 ? '#202430' : '#232838');
-  R(OX, OY - 10, GRID_W * T, 6, PAL.amber);
-  R(OX, OY + GRID_H * T + 4, GRID_W * T, 6, PAL.amber);
+  sheet('#cfd8dc', 33);
+  gridLines('#78909c');
+  crayonLine(OX, OY - 8, OX + GRID_W * T, OY - 8, PAL.amber, 6, 71);
+  crayonLine(OX, OY + GRID_H * T + 8, OX + GRID_W * T, OY + GRID_H * T + 8, PAL.amber, 6, 72);
 }
 function drawDcBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  outline(OX - 22, OY - 22, GRID_W * T + 44, GRID_H * T + 44, '#3a4358', 10);
-  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
-    R(gx(i), gy(j), T, T, (Math.floor(i / 2) + Math.floor(j / 2)) % 2 ? '#242833' : '#272b38');
-  R(gx(14), gy(0), 2 * T, 2 * T, '#1d3242');
-  outline(gx(14), gy(0), 2 * T, 2 * T, '#2a5a7a', 2);
-  R(OX + GRID_W * T / 2 - 48, OY + GRID_H * T + 12, 96, 10, PAL.bg);
+  sheet('#d7ccc8', 44);
+  strokePaper(OX - 14, OY - 14, GRID_W * T + 28, GRID_H * T + 28, PAL.grayD, 45, 8);
+  paperRect(gx(14), gy(0), 2 * T, 2 * T, '#90caf9', 46, 3, true);
+  gridLines('#a1887f');
 }
 const BG = { board: drawBoardBg, rack: drawRackBg, row: drawRowBg, dc: drawDcBg };
 
 /* ---------------- sprites ---------------- */
-function ledState(e, t) {
-  const connected = S.cables.some(c => c.a === e.id || c.b === e.id);
-  if (e.online) return (Math.sin(t * 6 + e.id) > 0) ? PAL.green : '#1d6a3a';
-  if (connected) return PAL.red;
-  return PAL.dim;
-}
 function drawGPU(e, t) {
-  const x = gx(e.i), y = gy(e.j);
-  R(x + 8, y + 4, 48, 56, PAL.dark);
-  R(x + 8, y + 4, 48, 4, PAL.steel);
-  R(x + 12, y + 12, 40, 36, PAL.steel);
-  outline(x + 18, y + 16, 28, 28, PAL.lite, 3);
-  R(x + 29, y + 27, 6, 6, PAL.hi);
-  R(x + 29, y + 19, 6, 6, PAL.lite); R(x + 29, y + 35, 6, 6, PAL.lite);
-  R(x + 21, y + 27, 6, 6, PAL.lite); R(x + 37, y + 27, 6, 6, PAL.lite);
-  R(x + 14, y + 52, 36, 5, PAL.gold);
-  R(x + 48, y + 7, 5, 5, ledState(e, t));
+  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  paperRect(x + 9, y + 8, 46, 48, BODY.gpu, e.id);
+  paperCircle(x + 45, y + 17, 7, '#ffe0b2', e.id + 1, true);
+  ctx.strokeStyle = PAL.ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x + 40, y + 12); ctx.lineTo(x + 50, y + 22);
+  ctx.moveTo(x + 50, y + 12); ctx.lineTo(x + 40, y + 22); ctx.stroke();
+  for (let k = 0; k < 5; k++) R(x + 13 + k * 8, y + 52, 5, 5, PAL.gold);
+  face(x + 28, y + 30, mood(e), e.id, t, {});
 }
 function drawCPU(e, t) {
   const x = gx(e.i), y = gy(e.j);
-  R(x + 6, y + 6, 52, 52, '#2c6e46');
-  outline(x + 6, y + 6, 52, 52, PAL.gold, 2);
-  R(x + 14, y + 14, 36, 36, PAL.hi);
-  R(x + 14, y + 14, 36, 4, '#c8cdd6'); R(x + 14, y + 14, 4, 36, '#c8cdd6');
-  R(x + 44, y + 44, 6, 6, PAL.lite);
-  R(x + 28, y + 28, 8, 8, '#7d95a8');
+  paperRect(x + 5, y + 6, 54, 52, BODY.cpu, e.id);
+  for (let k = 0; k < 6; k++) R(x + 9 + k * 8.5, y + 56, 5, 6, PAL.gold);
+  face(x + 32, y + 28, S.ents.some(n => n.online) ? 'happy' : 'idle', e.id, t, { glasses: true });
 }
 function drawMem(e, t) {
   const x = gx(e.i), y = gy(e.j);
-  R(x + 22, y + 4, 20, 56, PAL.dark);
-  R(x + 25, y + 8, 14, 8, PAL.steel); R(x + 25, y + 19, 14, 8, PAL.steel);
-  R(x + 25, y + 30, 14, 8, PAL.steel); R(x + 25, y + 41, 14, 8, PAL.steel);
-  R(x + 24, y + 54, 16, 4, PAL.gold);
+  paperRect(x + 19, y + 5, 26, 54, BODY.mem, e.id);
+  R(x + 23, y + 40, 18, 6, PAL.ink); R(x + 23, y + 49, 18, 6, PAL.ink);
+  face(x + 32, y + 20, 'idle', e.id, t, { s: 0.7, lids: true, lidColor: BODY.mem });
 }
 function drawServer(e, t) {
-  const x = gx(e.i), y = gy(e.j);
-  R(x + 4, y + 12, 56, 40, PAL.steel);
-  R(x + 4, y + 12, 56, 4, PAL.lite);
-  R(x + 10, y + 20, 44, 26, PAL.ink);
-  R(x + 13, y + 23, 18, 8, PAL.dark); R(x + 34, y + 23, 18, 8, PAL.dark);
-  R(x + 13, y + 35, 18, 8, PAL.dark); R(x + 34, y + 35, 18, 8, PAL.dark);
-  R(x + 6, y + 14, 3, 36, PAL.lite); R(x + 55, y + 14, 3, 36, PAL.lite);
-  R(x + 47, y + 15, 4, 4, ledState(e, t));
-  R(x + 41, y + 15, 4, 4, e.online ? PAL.amber : PAL.dim);
+  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  paperRect(x + 4, y + 14, 56, 38, BODY.server, e.id);
+  circle(x + 48, y + 24, 3.5, mood(e) === 'happy' ? PAL.green : mood(e) === 'worry' ? PAL.red : '#455a64');
+  circle(x + 48, y + 34, 3.5, '#455a64'); circle(x + 48, y + 44, 3.5, '#455a64');
+  face(x + 24, y + 30, mood(e), e.id, t, { s: 0.9 });
 }
 function drawTorLeaf(e, t) {
   const x = gx(e.i), y = gy(e.j);
-  R(x + 4, y + 16, 56, 32, PAL.teal);
-  R(x + 4, y + 16, 56, 4, PAL.tealHi);
-  for (let p = 0; p < 6; p++) R(x + 10 + p * 8, y + 30, 6, 6, PAL.ink);
-  R(x + 52, y + 22, 4, 4, (Math.sin(t * 4 + e.id) > -0.3) ? PAL.greenHi : '#1d6a3a');
+  paperRect(x + 4, y + 18, 56, 34, BODY.tor, e.id);
+  paperRect(x + 18, y + 8, 28, 12, '#4a148c', e.id + 1, 2, true);
+  for (let p = 0; p < 5; p++) circle(x + 13 + p * 9.5, y + 46, 2.8, PAL.ink);
+  face(x + 32, y + 32, S.stats.online > 0 ? 'happy' : 'idle', e.id, t, { s: 0.85 });
 }
 function drawSpine(e, t) {
   const x = gx(e.i), y = gy(e.j);
-  R(x + 4, y + 8, 56, 48, PAL.purp);
-  R(x + 4, y + 8, 56, 4, PAL.purpHi);
-  for (let row = 0; row < 2; row++)
-    for (let p = 0; p < 6; p++) R(x + 10 + p * 8, y + 22 + row * 14, 6, 6, PAL.ink);
-  R(x + 52, y + 14, 4, 4, (Math.floor(t * 3) % 2) ? '#e8dcff' : '#6a4ab0');
+  paperRect(x + 6, y + 6, 52, 52, BODY.spine, e.id);
+  for (let p = 0; p < 5; p++) circle(x + 14 + p * 9, y + 50, 2.8, PAL.ink);
+  face(x + 32, y + 26, 'idle', e.id, t, { brows: true });
 }
 function drawRack(e, t) {
-  const x = gx(e.i), y = gy(e.j);
-  R(x + 8, y + 2, 48, 60, PAL.steel);
-  R(x + 8, y + 2, 48, 5, PAL.lite);
-  R(x + 13, y + 10, 38, 48, PAL.ink);
-  for (let s2 = 0; s2 < 5; s2++) {
-    R(x + 15, y + 12 + s2 * 9, 34, 7, PAL.dark);
-    R(x + 43, y + 14 + s2 * 9, 3, 3, ledState(e, t + s2));
-  }
-  R(x + 52, y + 30, 3, 8, PAL.lite);
-}
-function drawRetimer(r, t) {
-  const x = cx(r.i), y = cy(r.j);
-  const on = (Math.sin(t * 5 + r.i) > -0.5);
-  R(x - 12, y - 9, 24, 18, PAL.ink);
-  for (let p = 0; p < 4; p++) {
-    R(x - 9 + p * 6, y - 13, 3, 4, PAL.gold);
-    R(x - 9 + p * 6, y + 9, 3, 4, PAL.gold);
-  }
-  R(x - 2, y - 2, 4, 4, on ? PAL.greenHi : PAL.green);
-  if (on) outline(x - 16, y - 13, 32, 26, 'rgba(87,227,137,.25)', 2);
+  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  paperRect(x + 9, y + 3, 46, 58, BODY.rk, e.id);
+  for (let k = 0; k < 3; k++)
+    circle(x + 47, y + 14 + k * 10, 3, e.online ? PAL.green : '#4e342e');
+  face(x + 27, y + 24, mood(e), e.id, t, { s: 0.85 });
+  R(x + 14, y + 46, 36, 4, '#4e342e'); R(x + 14, y + 53, 36, 4, '#4e342e');
 }
 function drawRowBlock(e, t) {
-  const x = gx(e.i), y = gy(e.j);
-  R(x + 2, y + 16, 60, 34, PAL.ink);
-  for (let k = 0; k < 4; k++) {
-    R(x + 6 + k * 14, y + 19, 12, 28, PAL.steel);
-    R(x + 6 + k * 14, y + 19, 12, 3, PAL.lite);
-    R(x + 9 + k * 14, y + 25, 6, 18, PAL.dark);
-    R(x + 10 + k * 14, y + 27, 3, 3, ledState(e, t + k));
+  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  paperRect(x + 2, y + 14, 60, 38, BODY.rw, e.id);
+  const m = mood(e);
+  for (let k = 0; k < 3; k++) {
+    const fx = x + 13 + k * 19;
+    circle(fx - 4, y + 28, 2.2, PAL.ink); circle(fx + 4, y + 28, 2.2, PAL.ink);
+    ctx.strokeStyle = PAL.ink; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (m === 'happy') ctx.arc(fx, y + 34, 4, 0.3, Math.PI - 0.3);
+    else if (m === 'worry') { ctx.moveTo(fx - 3, y + 38); ctx.arc(fx, y + 38, 3, Math.PI, 0); }
+    else { ctx.moveTo(fx - 3, y + 36); ctx.lineTo(fx + 3, y + 36); }
+    ctx.stroke();
   }
-  R(x + 2, y + 12, 60, 4, PAL.amber);
+  R(x + 6, y + 44, 52, 4, '#8e1f1c');
 }
 function drawSpinePod(e, t) {
   const x = gx(e.i), y = gy(e.j);
-  R(x + 6, y + 4, 52, 56, PAL.purp);
-  R(x + 6, y + 4, 52, 4, PAL.purpHi);
-  for (let a = 0; a < 3; a++) for (let b = 0; b < 4; b++)
-    R(x + 12 + b * 12, y + 14 + a * 14, 8, 8, PAL.ink);
-  R(x + 50, y + 8, 4, 4, (Math.floor(t * 3 + e.id) % 2) ? '#e8dcff' : '#6a4ab0');
+  paperRect(x + 6, y + 10, 52, 50, BODY.spine2, e.id);
+  ctx.fillStyle = PAL.amber;
+  ctx.beginPath();
+  ctx.moveTo(x + 16, y + 12); ctx.lineTo(x + 20, y + 2); ctx.lineTo(x + 27, y + 10);
+  ctx.lineTo(x + 32, y + 0); ctx.lineTo(x + 37, y + 10); ctx.lineTo(x + 44, y + 2);
+  ctx.lineTo(x + 48, y + 12); ctx.closePath(); ctx.fill();
+  for (let p = 0; p < 5; p++) circle(x + 14 + p * 9, y + 52, 2.8, PAL.ink);
+  face(x + 32, y + 30, 'idle', e.id, t, { brows: true });
 }
 function drawDci(e, t) {
   const x = gx(e.i), y = gy(e.j);
-  R(x + 8, y + 14, 48, 46, '#1d2436');
-  outline(x + 8, y + 14, 48, 46, '#2a5a7a', 2);
-  outline(x + 22, y + 28, 20, 20, '#4ad2e0', 3);
-  R(x + 30, y + 30, 4, 16, '#4ad2e0');
-  R(x + 30, y + 4, 4, 10, PAL.lite);
-  R(x + 28, y + 2, 8, 4, (Math.sin(t * 5) > 0) ? '#8fe4ff' : '#2a5a7a');
+  paperRect(x + 7, y + 8, 50, 52, BODY.dci, e.id);
+  ctx.strokeStyle = '#76ff03'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(x + 32, y + 32, 20 + Math.sin(t * 3) * 1.5, 0, Math.PI * 2); ctx.stroke();
+  face(x + 32, y + 30, 'idle', e.id, t, { alien: true });
+  ctx.strokeStyle = '#76ff03'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x + 26, y + 44); ctx.quadraticCurveTo(x + 32, y + 47, x + 38, y + 44); ctx.stroke();
+}
+function drawRetimer(r, t) {
+  const x = cx(r.i), y = cy(r.j) + Math.sin(t * 4 + r.i) * 1.5;
+  ctx.fillStyle = PAL.red;
+  ctx.beginPath();
+  ctx.moveTo(x - 8, y - 6); ctx.lineTo(x - 22, y + 12); ctx.lineTo(x - 4, y + 8);
+  ctx.closePath(); ctx.fill();
+  paperRect(x - 14, y - 11, 28, 22, PAL.ink, r.i * 31 + r.j);
+  for (let p = 0; p < 4; p++) {
+    R(x - 10 + p * 6.5, y - 15, 3, 4, PAL.gold);
+    R(x - 10 + p * 6.5, y + 11, 3, 4, PAL.gold);
+  }
+  R(x - 13, y - 5, 26, 6, PAL.red);
+  circle(x - 5, y - 2, 2, '#ffffff'); circle(x + 5, y - 2, 2, '#ffffff');
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x, y + 4, 4, 0.3, Math.PI - 0.3); ctx.stroke();
 }
 const DRAW = { gpu: drawGPU, cpu: drawCPU, mem: drawMem, server: drawServer, tor: drawTorLeaf, leaf: drawTorLeaf, spine: drawSpine, rk: drawRack, rw: drawRowBlock, spine2: drawSpinePod, dci: drawDci };
 
 /* ---------------- cables & pulses ---------------- */
-function segFill(x1, y1, x2, y2, w, color) {
-  if (y1 === y2) R(Math.min(x1, x2) - w / 2, y1 - w / 2, Math.abs(x2 - x1) + w, w, color);
-  else R(x1 - w / 2, Math.min(y1, y2) - w / 2, w, Math.abs(y2 - y1) + w, color);
-}
-function drawCable(c) {
+function wigglePts(c) {
   const pts = c.path.map(p => [cx(p.i), cy(p.j)]);
-  const spec = CAB[c.type];
-  for (let k = 0; k < pts.length - 1; k++)
-    segFill(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], 10, PAL.bg);
+  const out = [];
   for (let k = 0; k < pts.length - 1; k++) {
-    const beyond = !c.ok && k >= c.failAt;
-    segFill(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], 6, beyond ? '#5a1f1f' : spec.color);
-    if (beyond) {
-      const [x1, y1] = pts[k], [x2, y2] = pts[k + 1];
-      const len = Math.abs(x2 - x1) + Math.abs(y2 - y1);
-      const sx = Math.sign(x2 - x1), sy = Math.sign(y2 - y1);
-      for (let d = 4; d < len; d += 16)
-        R(x1 + sx * d - 3, y1 + sy * d - 3, 6, 6, PAL.red);
+    const [x1, y1] = pts[k], [x2, y2] = pts[k + 1];
+    const len = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+    const horiz = y1 === y2;
+    const steps = Math.max(2, Math.round(len / 14));
+    for (let s = 0; s < steps; s++) {
+      const f = s / steps;
+      const bx = x1 + (x2 - x1) * f, by = y1 + (y2 - y1) * f;
+      const w = Math.sin((bx + by) * 0.12 + c.id) * 2.5;
+      out.push([bx + (horiz ? 0 : w), by + (horiz ? w : 0), k + f]);
     }
   }
-  R(pts[0][0] - 4, pts[0][1] - 4, 8, 8, PAL.ink);
-  R(pts[pts.length - 1][0] - 4, pts[pts.length - 1][1] - 4, 8, 8, PAL.ink);
+  const last = pts[pts.length - 1];
+  out.push([last[0], last[1], pts.length - 1]);
+  return out;
+}
+function strokeRun(pts, from, to, color, width, dash) {
+  ctx.strokeStyle = color; ctx.lineWidth = width;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.setLineDash(dash || []);
+  ctx.beginPath();
+  let started = false;
+  pts.forEach(p => {
+    if (p[2] < from - 0.001 || p[2] > to + 0.001) return;
+    if (!started) { ctx.moveTo(p[0], p[1]); started = true; }
+    else ctx.lineTo(p[0], p[1]);
+  });
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function drawCable(c) {
+  const pts = wigglePts(c);
+  const n = c.path.length - 1;
+  const spec = CAB[c.type];
+  ctx.save(); ctx.translate(2, 3);
+  strokeRun(pts, 0, n, PAL.shadow, 8);
+  ctx.restore();
+  if (c.ok) strokeRun(pts, 0, n, spec.color, 6);
+  else {
+    strokeRun(pts, 0, c.failAt, spec.color, 6);
+    strokeRun(pts, c.failAt, n, PAL.red, 5, [10, 8]);
+  }
+  const first = pts[0], last = pts[pts.length - 1];
+  circle(first[0], first[1], 5, PAL.ink); circle(last[0], last[1], 5, PAL.ink);
   if (S.selected && S.selected.kind === 'cable' && S.selected.cable === c)
-    for (let k = 0; k < pts.length - 1; k++)
-      segFill(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], 14, 'rgba(255,255,255,.14)');
+    strokeRun(pts, 0, n, 'rgba(255,255,255,.45)', 11);
 }
 function healthAtFrac(c, f) {
   const n = c.path.length - 1;
@@ -707,20 +843,94 @@ function updatePulses(c, dt, now) {
   const speed = 3.2 / n;
   const failFrac = c.ok ? 2 : c.failAt / n;
   c.pulses.forEach(p => { p.t += dt * speed; });
-  c.pulses = c.pulses.filter(p => p.t <= Math.min(1, failFrac + 0.04));
+  c.pulses = c.pulses.filter(p => p.t >= 0 && p.t <= Math.min(1, failFrac + 0.04));
 }
 function drawPulses(c) {
   const pts = c.path.map(p => [cx(p.i), cy(p.j)]);
   const n = c.path.length - 1;
   c.pulses.forEach(p => {
-    const k = p.t * n, k0 = Math.min(n - 1, Math.floor(k)), fr = k - k0;
-    const x = Math.round((pts[k0][0] + (pts[k0 + 1][0] - pts[k0][0]) * fr) / 2) * 2;
-    const y = Math.round((pts[k0][1] + (pts[k0 + 1][1] - pts[k0][1]) * fr) / 2) * 2;
+    const k = p.t * n, k0 = Math.min(n - 1, Math.max(0, Math.floor(k))), fr = k - k0;
+    const x = pts[k0][0] + (pts[k0 + 1][0] - pts[k0][0]) * fr;
+    const y = pts[k0][1] + (pts[k0 + 1][1] - pts[k0][1]) * fr;
     const h = healthAtFrac(c, p.t);
     const dying = !c.ok && p.t > c.failAt / n - 0.05;
-    ctx.globalAlpha = Math.max(0.2, h / 100);
-    R(x - 3, y - 3, 6, 6, dying ? PAL.red : healthColor(h));
+    ctx.globalAlpha = Math.max(0.25, h / 100);
+    circle(x, y, dying ? 6 : 5, dying ? PAL.red : healthColor(h));
+    circle(x - 1.5, y - 1.5, 1.7, 'rgba(255,255,255,.85)');
     ctx.globalAlpha = 1;
+  });
+}
+
+/* ---------------- fireworks ---------------- */
+function levelComplete() {
+  showBanner();
+  spawnFireworks();
+  clearTimeout(advanceTimer);
+  const cur = S;
+  advanceTimer = setTimeout(() => {
+    if (S === cur && S.done) startLevel(Math.min(S.idx + 1, LEVELS.length - 1));
+  }, 4200);
+}
+function spawnFireworks() {
+  const colors = [PAL.green, PAL.amber, '#26c6da', '#f06ab8', PAL.orange, '#b48ae8'];
+  for (let k = 0; k < 6; k++) {
+    FX.push({
+      kind: 'rocket',
+      x: OX + 90 + Math.random() * (GRID_W * T - 180),
+      y: OY + GRID_H * T,
+      vy: -(400 + Math.random() * 150),
+      delay: k * 0.4 + Math.random() * 0.25,
+      fuse: 0.65 + Math.random() * 0.45,
+      color: colors[k % colors.length]
+    });
+  }
+}
+function updateFx(dt) {
+  const burst = [];
+  FX.forEach(p => {
+    if (p.kind === 'rocket') {
+      if (p.delay > 0) { p.delay -= dt; return; }
+      p.y += p.vy * dt;
+      p.fuse -= dt;
+      if (p.fuse <= 0 || p.y < OY + 60) {
+        p.dead = true;
+        const n = 26 + (Math.random() * 10 | 0);
+        for (let s = 0; s < n; s++) {
+          const a = (s / n) * Math.PI * 2, spd = 90 + Math.random() * 130;
+          burst.push({
+            kind: 'spark', x: p.x, y: p.y,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+            life: 1.0 + Math.random() * 0.5, max: 1.5,
+            spin: (Math.random() * 6 - 3),
+            color: Math.random() < 0.25 ? '#ffffff' : p.color
+          });
+        }
+      }
+    } else {
+      p.vy += 240 * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.life <= 0) p.dead = true;
+    }
+  });
+  FX.push(...burst);
+  FX = FX.filter(p => !p.dead);
+}
+function drawFx() {
+  FX.forEach(p => {
+    if (p.kind === 'rocket') {
+      if (p.delay > 0) return;
+      circle(p.x, p.y, 3.5, '#fff3c4');
+      ctx.globalAlpha = 0.4; circle(p.x, p.y + 10, 2.5, PAL.amber); ctx.globalAlpha = 1;
+    } else {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.life * p.spin);
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      R(-3.5, -3.5, 7, 7, p.color);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
   });
 }
 
@@ -733,23 +943,21 @@ function drawGhost(t) {
     ctx.globalAlpha = 0.55;
     DRAW[S.tool]({ i, j, id: -1, online: false }, t);
     ctx.globalAlpha = 1;
-    outline(gx(i) + 2, gy(j) + 2, T - 4, T - 4, bad ? PAL.red : PAL.green, 2);
+    strokePaper(gx(i) + 3, gy(j) + 3, T - 6, T - 6, bad ? PAL.red : PAL.green, i * 9 + j, 3);
   } else if (S.tool === 'retimer') {
     ctx.globalAlpha = 0.6; drawRetimer({ i, j }, t); ctx.globalAlpha = 1;
   } else if (CAB[S.tool] && S.pendA) {
     const e = entAt(i, j);
     const target = e ? { i: e.i, j: e.j } : { i, j };
     const pts = lPath(S.pendA, target).map(p => [cx(p.i), cy(p.j)]);
-    for (let k = 0; k < pts.length - 1; k++) {
-      const [x1, y1] = pts[k], [x2, y2] = pts[k + 1];
-      const len = Math.abs(x2 - x1) + Math.abs(y2 - y1);
-      const sx = Math.sign(x2 - x1), sy = Math.sign(y2 - y1);
-      for (let d = 0; d < len; d += 12)
-        R(x1 + sx * d - 2, y1 + sy * d - 2, 4, 4, CAB[S.tool].color);
-    }
+    ctx.strokeStyle = CAB[S.tool].color; ctx.lineWidth = 4; ctx.setLineDash([8, 8]);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    pts.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
+    ctx.stroke(); ctx.setLineDash([]);
   }
   if ((CAB[S.tool] || S.tool === 'select') && entAt(i, j))
-    outline(gx(i) + 2, gy(j) + 2, T - 4, T - 4, 'rgba(255,255,255,.5)', 2);
+    strokePaper(gx(i) + 3, gy(j) + 3, T - 6, T - 6, 'rgba(255,255,255,.7)', i * 7 + j, 3);
 }
 function frame(ts) {
   requestAnimationFrame(frame);
@@ -760,19 +968,19 @@ function frame(ts) {
   S.cables.forEach(c => { updatePulses(c, dt, ts); drawPulses(c); });
   S.retimers.forEach(r => drawRetimer(r, t));
   S.ents.forEach(e => DRAW[e.type](e, t));
-  if (S.pendA) outline(gx(S.pendA.i) + 1, gy(S.pendA.j) + 1, T - 2, T - 2, PAL.green, 2);
+  if (S.pendA) strokePaper(gx(S.pendA.i) + 2, gy(S.pendA.j) + 2, T - 4, T - 4, PAL.green, S.pendA.id, 3);
   if (S.selected && S.selected.kind === 'ent')
-    outline(gx(S.selected.ent.i), gy(S.selected.ent.j), T, T, '#ffffff', 2);
+    strokePaper(gx(S.selected.ent.i), gy(S.selected.ent.j), T, T, '#ffffff', S.selected.ent.id, 3);
   updateFx(dt);
   drawFx();
   drawGhost(t);
   if (performance.now() < toast.until) {
-    ctx.font = '15px monospace'; ctx.textAlign = 'center';
-    const w = ctx.measureText(toast.msg).width + 36;
-    R((CW - w) / 2, CH - 64, w, 34, PAL.ink);
-    outline((CW - w) / 2, CH - 64, w, 34, PAL.amber, 2);
-    ctx.fillStyle = '#f5e6c0';
-    ctx.fillText(toast.msg, CW / 2, CH - 42);
+    ctx.font = '16px "Comic Sans MS", "Segoe Print", cursive';
+    ctx.textAlign = 'center';
+    const w = ctx.measureText(toast.msg).width + 44;
+    paperRect((CW - w) / 2, CH - 70, w, 40, PAL.white, 99, 3);
+    ctx.fillStyle = PAL.ink;
+    ctx.fillText(toast.msg, CW / 2, CH - 44);
     ctx.textAlign = 'left';
   }
 }
@@ -843,56 +1051,45 @@ function toolIcon(key) {
   const c = document.createElement('canvas');
   c.width = 46; c.height = 46;
   const g = c.getContext('2d');
-  const r = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  if (key === 'gpu') {
-    r(8, 4, 30, 34, PAL.dark); r(8, 4, 30, 3, PAL.steel);
-    r(13, 10, 20, 20, PAL.steel); r(17, 14, 12, 12, PAL.lite); r(21, 18, 4, 4, PAL.hi);
-    r(12, 34, 22, 4, PAL.gold);
-  } else if (key === 'cpu') {
-    r(7, 7, 32, 32, '#2c6e46'); r(7, 7, 32, 2, PAL.gold); r(7, 37, 32, 2, PAL.gold);
-    r(7, 7, 2, 32, PAL.gold); r(37, 7, 2, 32, PAL.gold);
-    r(13, 13, 20, 20, PAL.hi); r(13, 13, 20, 3, '#c8cdd6');
-  } else if (key === 'mem') {
-    r(17, 5, 12, 34, PAL.dark); r(19, 9, 8, 5, PAL.steel); r(19, 17, 8, 5, PAL.steel);
-    r(19, 25, 8, 5, PAL.steel); r(18, 35, 10, 3, PAL.gold);
-  } else if (key === 'server') {
-    r(6, 12, 34, 24, PAL.steel); r(6, 12, 34, 3, PAL.lite);
-    r(10, 17, 26, 15, PAL.ink); r(12, 19, 10, 5, PAL.dark); r(24, 19, 10, 5, PAL.dark);
-    r(33, 14, 3, 3, PAL.green);
-  } else if (key === 'tor' || key === 'leaf') {
-    r(6, 14, 34, 20, PAL.teal); r(6, 14, 34, 3, PAL.tealHi);
-    for (let p = 0; p < 4; p++) r(10 + p * 7, 24, 5, 5, PAL.ink);
-    r(34, 18, 3, 3, PAL.greenHi);
-  } else if (key === 'spine') {
-    r(6, 8, 34, 30, PAL.purp); r(6, 8, 34, 3, PAL.purpHi);
-    for (let row = 0; row < 2; row++) for (let p = 0; p < 4; p++) r(10 + p * 7, 17 + row * 9, 5, 5, PAL.ink);
-  } else if (key === 'rk') {
-    r(10, 4, 26, 36, PAL.steel); r(10, 4, 26, 3, PAL.lite);
-    r(13, 9, 20, 28, PAL.ink);
-    for (let s2 = 0; s2 < 4; s2++) { r(14, 11 + s2 * 6, 18, 4, PAL.dark); r(28, 12 + s2 * 6, 2, 2, PAL.green); }
-  } else if (key === 'rw') {
-    r(5, 14, 36, 20, PAL.ink); r(5, 11, 36, 3, PAL.amber);
-    for (let k = 0; k < 4; k++) { r(7 + k * 9, 16, 7, 16, PAL.steel); r(9 + k * 9, 20, 3, 3, PAL.green); }
-  } else if (key === 'spine2') {
-    r(7, 6, 32, 34, PAL.purp); r(7, 6, 32, 3, PAL.purpHi);
-    for (let a = 0; a < 2; a++) for (let b = 0; b < 3; b++) r(11 + b * 9, 14 + a * 10, 6, 6, PAL.ink);
-  } else if (key === 'dci') {
-    r(9, 12, 28, 28, '#1d2436');
-    g.strokeStyle = '#4ad2e0'; g.lineWidth = 3; g.strokeRect(16, 19, 14, 14);
-    r(21, 4, 4, 8, PAL.lite); r(19, 2, 8, 3, '#8fe4ff');
+  const body = (color, x, y, w, h) => {
+    g.fillStyle = 'rgba(40,30,20,.28)'; g.fillRect(x + 2, y + 3, w, h);
+    g.fillStyle = color; g.fillRect(x, y, w, h);
+  };
+  const eyes = (x, y, s2) => {
+    const s = s2 || 1;
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 5 * s, y, 4 * s, 0, 7); g.fill();
+    g.beginPath(); g.arc(x + 5 * s, y, 4 * s, 0, 7); g.fill();
+    g.fillStyle = '#212121'; g.beginPath(); g.arc(x - 5 * s, y + 1, 1.6 * s, 0, 7); g.fill();
+    g.beginPath(); g.arc(x + 5 * s, y + 1, 1.6 * s, 0, 7); g.fill();
+    g.strokeStyle = '#212121'; g.lineWidth = 1.6; g.beginPath();
+    g.arc(x, y + 7 * s, 3.5 * s, 0.4, Math.PI - 0.4); g.stroke();
+  };
+  if (CAT[key]) {
+    const dims = { gpu: [8, 8, 30, 32], cpu: [6, 8, 34, 32], mem: [15, 5, 16, 36], server: [5, 12, 36, 26], tor: [5, 12, 36, 26], leaf: [5, 12, 36, 26], spine: [7, 6, 32, 34], rk: [10, 5, 26, 36], rw: [4, 12, 38, 24], spine2: [7, 8, 32, 32], dci: [8, 8, 30, 32] };
+    const d = dims[key] || [8, 8, 30, 30];
+    body(BODY[key] || '#888', d[0], d[1], d[2], d[3]);
+    eyes(d[0] + d[2] / 2, d[1] + d[3] * 0.42, 0.9);
+    if (key === 'spine2') { g.fillStyle = '#fdd835'; g.beginPath(); g.moveTo(13, 9); g.lineTo(17, 2); g.lineTo(22, 8); g.lineTo(27, 2); g.lineTo(31, 9); g.closePath(); g.fill(); }
+    if (key === 'dci') { g.strokeStyle = '#76ff03'; g.lineWidth = 2; g.beginPath(); g.arc(23, 22, 13, 0, 7); g.stroke(); }
   } else if (CAB[key]) {
-    const col = CAB[key].color;
-    r(4, 28, 16, 5, col); r(15, 14, 5, 19, col); r(15, 14, 26, 5, col);
-    r(2, 26, 6, 9, PAL.ink); r(39, 12, 6, 9, PAL.ink);
+    g.strokeStyle = 'rgba(40,30,20,.28)'; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(7, 34); g.quadraticCurveTo(18, 10, 39, 15); g.stroke();
+    g.strokeStyle = CAB[key].color; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(5, 32); g.quadraticCurveTo(16, 8, 37, 13); g.stroke();
   } else if (key === 'retimer') {
-    r(11, 15, 24, 16, PAL.ink);
-    for (let p = 0; p < 4; p++) { r(13 + p * 6, 11, 3, 4, PAL.gold); r(13 + p * 6, 31, 3, 4, PAL.gold); }
-    r(21, 21, 4, 4, PAL.greenHi);
+    g.fillStyle = '#e53935'; g.beginPath(); g.moveTo(14, 18); g.lineTo(4, 34); g.lineTo(18, 30); g.closePath(); g.fill();
+    body('#212121', 11, 14, 24, 18);
+    g.fillStyle = '#e53935'; g.fillRect(12, 18, 22, 5);
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(18, 20.5, 1.8, 0, 7); g.fill(); g.beginPath(); g.arc(28, 20.5, 1.8, 0, 7); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(23, 26, 3, 0.4, Math.PI - 0.4); g.stroke();
+    g.fillStyle = '#d9a326';
+    for (let p = 0; p < 4; p++) { g.fillRect(13 + p * 6, 10, 3, 4); g.fillRect(13 + p * 6, 32, 3, 4); }
   } else if (key === 'select') {
-    g.fillStyle = '#c9cfe8';
-    g.beginPath(); g.moveTo(14, 8); g.lineTo(32, 24); g.lineTo(23, 25); g.lineTo(28, 36); g.lineTo(24, 38); g.lineTo(19, 27); g.lineTo(13, 33); g.closePath(); g.fill();
+    g.fillStyle = '#fff8e7';
+    g.strokeStyle = '#212121'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(14, 8); g.lineTo(32, 24); g.lineTo(23, 25); g.lineTo(28, 36); g.lineTo(24, 38); g.lineTo(19, 27); g.lineTo(13, 33); g.closePath(); g.fill(); g.stroke();
   } else if (key === 'delete') {
-    g.strokeStyle = PAL.red; g.lineWidth = 5; g.lineCap = 'square';
+    g.strokeStyle = '#e53935'; g.lineWidth = 6; g.lineCap = 'round';
     g.beginPath(); g.moveTo(12, 12); g.lineTo(34, 34); g.moveTo(34, 12); g.lineTo(12, 34); g.stroke();
   }
   return c;
@@ -961,77 +1158,10 @@ function showLesson() {
   $('modalBody').innerHTML = S.level.lesson;
   $('modal').classList.add('open');
 }
-function levelComplete() {
-  showBanner();
-  spawnFireworks();
-  clearTimeout(advanceTimer);
-  const cur = S;
-  advanceTimer = setTimeout(() => {
-    if (S === cur && S.done) startLevel(Math.min(S.idx + 1, LEVELS.length - 1));
-  }, 4200);
-}
-function spawnFireworks() {
-  const colors = [PAL.greenHi, PAL.amber, '#4ad2e0', '#f06ab8', PAL.gold, '#b48ae8'];
-  for (let k = 0; k < 6; k++) {
-    FX.push({
-      kind: 'rocket',
-      x: OX + 90 + Math.random() * (GRID_W * T - 180),
-      y: OY + GRID_H * T,
-      vy: -(400 + Math.random() * 150),
-      delay: k * 0.4 + Math.random() * 0.25,
-      fuse: 0.65 + Math.random() * 0.45,
-      color: colors[k % colors.length]
-    });
-  }
-}
-function updateFx(dt) {
-  const burst = [];
-  FX.forEach(p => {
-    if (p.kind === 'rocket') {
-      if (p.delay > 0) { p.delay -= dt; return; }
-      p.y += p.vy * dt;
-      p.fuse -= dt;
-      if (p.fuse <= 0 || p.y < OY + 60) {
-        p.dead = true;
-        const n = 26 + (Math.random() * 10 | 0);
-        for (let s = 0; s < n; s++) {
-          const a = (s / n) * Math.PI * 2, spd = 90 + Math.random() * 130;
-          burst.push({
-            kind: 'spark', x: p.x, y: p.y,
-            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
-            life: 1.0 + Math.random() * 0.5, max: 1.5,
-            color: Math.random() < 0.25 ? '#ffffff' : p.color
-          });
-        }
-      }
-    } else {
-      p.vy += 240 * dt;
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      p.life -= dt;
-      if (p.life <= 0) p.dead = true;
-    }
-  });
-  FX.push(...burst);
-  FX = FX.filter(p => !p.dead);
-}
-function drawFx() {
-  FX.forEach(p => {
-    if (p.kind === 'rocket') {
-      if (p.delay > 0) return;
-      R(Math.round(p.x / 2) * 2 - 2, Math.round(p.y / 2) * 2, 4, 8, '#fff3c4');
-      ctx.globalAlpha = 0.4;
-      R(Math.round(p.x / 2) * 2 - 2, Math.round(p.y / 2) * 2 + 10, 4, 6, PAL.amber);
-      ctx.globalAlpha = 1;
-    } else {
-      ctx.globalAlpha = Math.max(0, p.life / p.max);
-      R(Math.round(p.x / 2) * 2 - 2, Math.round(p.y / 2) * 2 - 2, 4, 4, p.color);
-      ctx.globalAlpha = 1;
-    }
-  });
-}
 function showBanner() {
   const b = $('banner');
-  b.innerHTML = `<h2>${S.level.title.split('—')[1] || 'Level'} complete!</h2><p>${S.idx + 1 < LEVELS.length ? 'Next lesson in a moment…' : 'You built the whole chain!'}</p>`;
+  const yay = ['Sweet!', 'Oh my gosh, it works!', 'Niiice.', 'Respect my bandwidth!', 'That’s pretty cool.'];
+  b.innerHTML = `<h2>${yay[Math.floor(Math.random() * yay.length)]} ${(S.level.title.split('—')[1] || 'Level').trim()} complete!</h2><p>${S.idx + 1 < LEVELS.length ? 'Next lesson in a moment…' : 'You built the whole chain!'}</p>`;
   b.classList.add('show');
   $('btnNext').hidden = S.idx + 1 >= LEVELS.length;
   setTimeout(() => b.classList.remove('show'), 3800);
@@ -1075,7 +1205,6 @@ $('lvlSel').onchange = ev => startLevel(parseInt(ev.target.value, 10));
   const dpr = window.devicePixelRatio || 1;
   cvs.width = CW * dpr; cvs.height = CH * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.imageSmoothingEnabled = false;
   startLevel(0);
   requestAnimationFrame(frame);
 })();
