@@ -623,6 +623,8 @@ function face(x, y, mood, seed, t, opts) {
     ctx.beginPath(); ctx.moveTo(x - 5 * s, my); ctx.lineTo(x + 5 * s, my); ctx.stroke();
   }
 }
+function ex(e) { return e.px !== undefined ? e.px : gx(e.i); }
+function ey(e) { return e.py !== undefined ? e.py : gy(e.j); }
 function mood(e) {
   if (e.online) return 'happy';
   if (S.cables.some(c => c.a === e.id || c.b === e.id)) return 'worry';
@@ -691,7 +693,7 @@ const BG = { board: drawBoardBg, rack: drawRackBg, row: drawRowBg, dc: drawDcBg 
 
 /* ---------------- sprites ---------------- */
 function drawGPU(e, t) {
-  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  const x = ex(e), y = ey(e) + bounce(e, t);
   paperRect(x + 9, y + 8, 46, 48, BODY.gpu, e.id);
   paperCircle(x + 45, y + 17, 7, '#ffe0b2', e.id + 1, true);
   ctx.strokeStyle = PAL.ink; ctx.lineWidth = 2;
@@ -701,39 +703,39 @@ function drawGPU(e, t) {
   face(x + 28, y + 30, mood(e), e.id, t, {});
 }
 function drawCPU(e, t) {
-  const x = gx(e.i), y = gy(e.j);
+  const x = ex(e), y = ey(e);
   paperRect(x + 5, y + 6, 54, 52, BODY.cpu, e.id);
   for (let k = 0; k < 6; k++) R(x + 9 + k * 8.5, y + 56, 5, 6, PAL.gold);
   face(x + 32, y + 28, S.ents.some(n => n.online) ? 'happy' : 'idle', e.id, t, { glasses: true });
 }
 function drawMem(e, t) {
-  const x = gx(e.i), y = gy(e.j);
+  const x = ex(e), y = ey(e);
   paperRect(x + 19, y + 5, 26, 54, BODY.mem, e.id);
   R(x + 23, y + 40, 18, 6, PAL.ink); R(x + 23, y + 49, 18, 6, PAL.ink);
   face(x + 32, y + 20, 'idle', e.id, t, { s: 0.7, lids: true, lidColor: BODY.mem });
 }
 function drawServer(e, t) {
-  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  const x = ex(e), y = ey(e) + bounce(e, t);
   paperRect(x + 4, y + 14, 56, 38, BODY.server, e.id);
   circle(x + 48, y + 24, 3.5, mood(e) === 'happy' ? PAL.green : mood(e) === 'worry' ? PAL.red : '#455a64');
   circle(x + 48, y + 34, 3.5, '#455a64'); circle(x + 48, y + 44, 3.5, '#455a64');
   face(x + 24, y + 30, mood(e), e.id, t, { s: 0.9 });
 }
 function drawTorLeaf(e, t) {
-  const x = gx(e.i), y = gy(e.j);
+  const x = ex(e), y = ey(e);
   paperRect(x + 4, y + 18, 56, 34, BODY.tor, e.id);
   paperRect(x + 18, y + 8, 28, 12, '#4a148c', e.id + 1, 2, true);
   for (let p = 0; p < 5; p++) circle(x + 13 + p * 9.5, y + 46, 2.8, PAL.ink);
   face(x + 32, y + 32, S.stats.online > 0 ? 'happy' : 'idle', e.id, t, { s: 0.85 });
 }
 function drawSpine(e, t) {
-  const x = gx(e.i), y = gy(e.j);
+  const x = ex(e), y = ey(e);
   paperRect(x + 6, y + 6, 52, 52, BODY.spine, e.id);
   for (let p = 0; p < 5; p++) circle(x + 14 + p * 9, y + 50, 2.8, PAL.ink);
   face(x + 32, y + 26, 'idle', e.id, t, { brows: true });
 }
 function drawRack(e, t) {
-  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  const x = ex(e), y = ey(e) + bounce(e, t);
   paperRect(x + 9, y + 3, 46, 58, BODY.rk, e.id);
   for (let k = 0; k < 3; k++)
     circle(x + 47, y + 14 + k * 10, 3, e.online ? PAL.green : '#4e342e');
@@ -741,7 +743,7 @@ function drawRack(e, t) {
   R(x + 14, y + 46, 36, 4, '#4e342e'); R(x + 14, y + 53, 36, 4, '#4e342e');
 }
 function drawRowBlock(e, t) {
-  const x = gx(e.i), y = gy(e.j) + bounce(e, t);
+  const x = ex(e), y = ey(e) + bounce(e, t);
   paperRect(x + 2, y + 14, 60, 38, BODY.rw, e.id);
   const m = mood(e);
   for (let k = 0; k < 3; k++) {
@@ -757,7 +759,7 @@ function drawRowBlock(e, t) {
   R(x + 6, y + 44, 52, 4, '#8e1f1c');
 }
 function drawSpinePod(e, t) {
-  const x = gx(e.i), y = gy(e.j);
+  const x = ex(e), y = ey(e);
   paperRect(x + 6, y + 10, 52, 50, BODY.spine2, e.id);
   ctx.fillStyle = PAL.amber;
   ctx.beginPath();
@@ -768,7 +770,7 @@ function drawSpinePod(e, t) {
   face(x + 32, y + 30, 'idle', e.id, t, { brows: true });
 }
 function drawDci(e, t) {
-  const x = gx(e.i), y = gy(e.j);
+  const x = ex(e), y = ey(e);
   paperRect(x + 7, y + 8, 50, 52, BODY.dci, e.id);
   ctx.strokeStyle = '#76ff03'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(x + 32, y + 32, 20 + Math.sin(t * 3) * 1.5, 0, Math.PI * 2); ctx.stroke();
@@ -827,7 +829,34 @@ function strokeRun(pts, from, to, color, width, dash) {
   });
   ctx.stroke(); ctx.setLineDash([]);
 }
+function predictEnd(other, tile, type) {
+  const spec = CAB[type];
+  const path = lPath(other, tile);
+  let h = 100;
+  for (let k = 1; k < path.length; k++) {
+    h -= spec.loss;
+    if (h < FAIL) return 0;
+    if (spec.retime && retAt(path[k].i, path[k].j)) h = 100;
+  }
+  return h;
+}
+function drawElastic(c) {
+  const other = S.ents.find(e => e.id === (c.a === drag.ent.id ? c.b : c.a));
+  if (!other) return;
+  const x1 = ex(other) + T / 2, y1 = ey(other) + T / 2;
+  const x2 = ex(drag.ent) + T / 2, y2 = ey(drag.ent) + T / 2;
+  const tile = hoverTile || { i: other.i, j: other.j };
+  const h = predictEnd(other, tile, c.type);
+  const col = h < FAIL ? PAL.red : healthColor(h);
+  ctx.strokeStyle = col; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.setLineDash([10, 8]);
+  ctx.beginPath(); ctx.moveTo(x1, y1);
+  ctx.quadraticCurveTo((x1 + x2) / 2, Math.max(y1, y2) + 22, x2, y2);
+  ctx.stroke(); ctx.setLineDash([]);
+  circle(x1, y1, 5, PAL.ink); circle(x2, y2, 5, PAL.ink);
+}
 function drawCable(c) {
+  if (drag && drag.lift && (c.a === drag.ent.id || c.b === drag.ent.id)) { drawElastic(c); return; }
   const pts = wigglePts(c);
   const n = c.path.length - 1;
   const spec = CAB[c.type];
@@ -953,8 +982,16 @@ function drawFx() {
 
 /* ---------------- main render ---------------- */
 function drawGhost(t) {
+  if (drag) return;
   if (!hoverTile || !mouse.inside) return;
   const { i, j } = hoverTile;
+  if (CAT[S.tool]) {
+    const occ = entAt(i, j);
+    if (occ && !occ.locked) {
+      strokePaper(gx(i) + 3, gy(j) + 3, T - 6, T - 6, 'rgba(255,255,255,.7)', i * 7 + j, 3);
+      return;
+    }
+  }
   if (CAT[S.tool]) {
     const bad = entAt(i, j) || retAt(i, j) || S.money < CAT[S.tool].cost;
     ctx.globalAlpha = 0.55;
@@ -981,20 +1018,42 @@ function frame(ts) {
   const t = ts / 1000, dt = Math.max(0.001, Math.min(0.05, t - lastT || 0.016));
   lastT = t;
   BG[S.scale]();
+  S.ents.forEach(e => {
+    const tx0 = gx(e.i), ty0 = gy(e.j);
+    if (drag && drag.lift && e === drag.ent && mouse.inside) {
+      const k = Math.min(1, dt * 26);
+      if (e.px === undefined) { e.px = tx0; e.py = ty0; }
+      e.px += (mouse.x - T / 2 - e.px) * k;
+      e.py += (mouse.y - T / 2 - e.py) * k;
+    } else {
+      if (e.px === undefined) { e.px = tx0; e.py = ty0; }
+      const k = Math.min(1, dt * 14);
+      e.px += (tx0 - e.px) * k;
+      e.py += (ty0 - e.py) * k;
+      if (Math.abs(e.px - tx0) < 0.4 && Math.abs(e.py - ty0) < 0.4) { e.px = tx0; e.py = ty0; }
+    }
+  });
   S.cables.forEach(drawCable);
-  S.cables.forEach(c => { updatePulses(c, dt, ts); drawPulses(c); });
+  S.cables.forEach(c => {
+    if (drag && drag.lift && (c.a === drag.ent.id || c.b === drag.ent.id)) return;
+    updatePulses(c, dt, ts); drawPulses(c);
+  });
   S.retimers.forEach(r => drawRetimer(r, t));
   S.ents.forEach(e => {
-    if (drag && drag.moved && e === drag.ent) ctx.globalAlpha = 0.3;
+    if (drag && drag.lift && e === drag.ent) return;
     DRAW[e.type](e, t);
-    ctx.globalAlpha = 1;
   });
-  if (drag && drag.moved && hoverTile) {
-    const bad = entAt(hoverTile.i, hoverTile.j) || retAt(hoverTile.i, hoverTile.j);
-    ctx.globalAlpha = 0.65;
-    DRAW[drag.ent.type]({ i: hoverTile.i, j: hoverTile.j, id: drag.ent.id, online: drag.ent.online }, t);
-    ctx.globalAlpha = 1;
-    strokePaper(gx(hoverTile.i) + 3, gy(hoverTile.j) + 3, T - 6, T - 6, bad ? PAL.red : PAL.green, hoverTile.i * 9 + hoverTile.j, 3);
+  if (drag && drag.lift) {
+    if (hoverTile) {
+      const occ = entAt(hoverTile.i, hoverTile.j);
+      const bad = (occ && occ !== drag.ent) || retAt(hoverTile.i, hoverTile.j);
+      strokePaper(gx(hoverTile.i) + 3, gy(hoverTile.j) + 3, T - 6, T - 6, bad ? PAL.red : PAL.green, hoverTile.i * 9 + hoverTile.j, 3);
+    }
+    const e = drag.ent, cx0 = ex(e) + T / 2, cy0 = ey(e) + T / 2;
+    ctx.save();
+    ctx.translate(cx0, cy0 + 3); ctx.scale(1.12, 1.12); ctx.translate(-cx0, -cy0);
+    DRAW[e.type](e, t);
+    ctx.restore();
   }
   if (S.pendA) strokePaper(gx(S.pendA.i) + 2, gy(S.pendA.j) + 2, T - 4, T - 4, PAL.green, S.pendA.id, 3);
   if (S.selected && S.selected.kind === 'ent')
@@ -1022,12 +1081,14 @@ cvs.addEventListener('pointermove', ev => {
   const p = canvasXY(ev);
   mouse = { x: p.x, y: p.y, inside: true };
   hoverTile = tileAt(p.x, p.y);
-  if (drag && hoverTile && (hoverTile.i !== drag.ent.i || hoverTile.j !== drag.ent.j)) drag.moved = true;
-  if (drag) cvs.style.cursor = 'grabbing';
-  else if (S.tool === 'select') {
+  if (drag) {
+    if (!drag.lift && Math.hypot(p.x - drag.sx, p.y - drag.sy) > 7) { drag.lift = true; drag.moved = true; }
+    cvs.style.cursor = 'grabbing';
+  } else {
     const th = hoverTile && entAt(hoverTile.i, hoverTile.j);
-    cvs.style.cursor = (th && !th.locked) ? 'grab' : 'default';
-  } else cvs.style.cursor = 'crosshair';
+    const grabbable = th && !th.locked && !CAB[S.tool] && S.tool !== 'delete';
+    cvs.style.cursor = grabbable ? 'grab' : (S.tool === 'select' ? 'default' : 'crosshair');
+  }
 });
 cvs.addEventListener('pointerleave', () => { mouse.inside = false; hoverTile = null; });
 cvs.addEventListener('pointerup', ev => {
@@ -1041,6 +1102,12 @@ window.addEventListener('pointerup', () => { if (drag && !mouse.inside) drag = n
 cvs.addEventListener('pointerdown', ev => {
   const p = canvasXY(ev);
   const tile = tileAt(p.x, p.y);
+  const grabbed = tile && entAt(tile.i, tile.j);
+  if (grabbed && !grabbed.locked && !CAB[S.tool] && S.tool !== 'delete') {
+    drag = { ent: grabbed, moved: false, sx: p.x, sy: p.y };
+    if (S.tool === 'select') { S.selected = { kind: 'ent', ent: grabbed }; showInspector(S.selected); }
+    return;
+  }
   if (CAT[S.tool]) { if (tile) tryPlaceEnt(S.tool, tile.i, tile.j); return; }
   if (S.tool === 'retimer') { if (tile) tryPlaceRet(tile.i, tile.j); return; }
   if (CAB[S.tool]) {
@@ -1057,13 +1124,11 @@ cvs.addEventListener('pointerdown', ev => {
     return;
   }
   const th = thingAt(p.x, p.y);
-  if (th && th.kind === 'ent' && !th.ent.locked)
-    drag = { ent: th.ent, moved: false };
   S.selected = th;
   showInspector(th);
 });
 window.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape') { S.pendA = null; setTool('select'); }
+  if (ev.key === 'Escape') { drag = null; S.pendA = null; setTool('select'); }
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selected) removeThing(S.selected);
   const order = ['select', ...S.level.tools, 'delete'];
   const n = parseInt(ev.key, 10);
