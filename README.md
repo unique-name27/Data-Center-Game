@@ -8,13 +8,17 @@ The original **Data Center Builder** (baseboards, CPU/GPU/memory wiring, economy
 
 ## What it teaches
 
-| Level | Concept |
-|---|---|
-| 1 — Light it up | Racks, top-of-rack switches, and links: what "online" means |
-| 2 — The reach problem | Signal integrity: copper degrades with distance; **retimer chips** regenerate the signal |
-| 3 — Copper vs light | The real engineering trade: DAC vs AEC vs optical — cost, power, and reach |
-| 4 — Scale out | Leaf-spine fabrics, uplinks, and 2:1 oversubscription |
-| Sandbox | Free build with live throughput and power metrics |
+The game zooms out through three scales — the same signal physics applies at every one:
+
+| Level | Scale | Concept |
+|---|---|---|
+| 1 — First light | Inside the server | GPUs, the CPU root complex, memory, PCIe traces |
+| 2 — The long trace | Inside the server | Signal integrity: copper degrades with distance; **retimer chips** regenerate the signal |
+| 3 — Top of rack | The rack | Servers, ToR switches, and why the switch lives at the top |
+| 4 — The bottom U | The rack | Loose retimers vs an AEC — a retimed cable is the same chip, productized |
+| 5 — Down the row | The row | DAC vs AEC vs optical: cost, power, and reach |
+| 6 — Scale out | The row | Leaf-spine fabrics, uplinks, and 2:1 oversubscription |
+| Sandbox | The row | Free build with live throughput and power metrics |
 
 The core teaching visual: data pulses travel along every cable and **visibly fade** as copper attenuates them. Below 30% health the link dies — unless a retimer chip on the route regenerates the signal back to 100%. Click anything for a plain-English explanation with a real-world note.
 
@@ -28,7 +32,7 @@ The core teaching visual: data pulses travel along every cable and **visibly fad
 ## Tech
 
 - Single `index.html` + `style.css` + `game.js` — vanilla JavaScript, canvas 2D
-- All graphics are drawn procedurally in code; there are no image assets
+- Pixel-art rendering: every sprite is drawn procedurally in code; there are no image assets
 - Level progress is saved in `localStorage`
 
 ## History
