@@ -321,6 +321,7 @@ let mouse = { x: 0, y: 0, inside: false };
 let hoverTile = null;
 let toast = { msg: '', until: 0 };
 let lastT = 0, idSeq = 1;
+let FX = [], advanceTimer = 0;
 
 function newLevelState(idx) {
   const L = LEVELS[idx];
@@ -404,7 +405,7 @@ function recompute() {
   if (!S.done && !S.level.sandbox && S.level.goals.every(g => g.check(S))) {
     S.done = true;
     unlockLevel(S.idx + 1);
-    showBanner();
+    levelComplete();
   }
   updateHUD(); updateGoals();
 }
@@ -762,6 +763,8 @@ function frame(ts) {
   if (S.pendA) outline(gx(S.pendA.i) + 1, gy(S.pendA.j) + 1, T - 2, T - 2, PAL.green, 2);
   if (S.selected && S.selected.kind === 'ent')
     outline(gx(S.selected.ent.i), gy(S.selected.ent.j), T, T, '#ffffff', 2);
+  updateFx(dt);
+  drawFx();
   drawGhost(t);
   if (performance.now() < toast.until) {
     ctx.font = '15px monospace'; ctx.textAlign = 'center';
@@ -958,12 +961,80 @@ function showLesson() {
   $('modalBody').innerHTML = S.level.lesson;
   $('modal').classList.add('open');
 }
+function levelComplete() {
+  showBanner();
+  spawnFireworks();
+  clearTimeout(advanceTimer);
+  const cur = S;
+  advanceTimer = setTimeout(() => {
+    if (S === cur && S.done) startLevel(Math.min(S.idx + 1, LEVELS.length - 1));
+  }, 4200);
+}
+function spawnFireworks() {
+  const colors = [PAL.greenHi, PAL.amber, '#4ad2e0', '#f06ab8', PAL.gold, '#b48ae8'];
+  for (let k = 0; k < 6; k++) {
+    FX.push({
+      kind: 'rocket',
+      x: OX + 90 + Math.random() * (GRID_W * T - 180),
+      y: OY + GRID_H * T,
+      vy: -(400 + Math.random() * 150),
+      delay: k * 0.4 + Math.random() * 0.25,
+      fuse: 0.65 + Math.random() * 0.45,
+      color: colors[k % colors.length]
+    });
+  }
+}
+function updateFx(dt) {
+  const burst = [];
+  FX.forEach(p => {
+    if (p.kind === 'rocket') {
+      if (p.delay > 0) { p.delay -= dt; return; }
+      p.y += p.vy * dt;
+      p.fuse -= dt;
+      if (p.fuse <= 0 || p.y < OY + 60) {
+        p.dead = true;
+        const n = 26 + (Math.random() * 10 | 0);
+        for (let s = 0; s < n; s++) {
+          const a = (s / n) * Math.PI * 2, spd = 90 + Math.random() * 130;
+          burst.push({
+            kind: 'spark', x: p.x, y: p.y,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+            life: 1.0 + Math.random() * 0.5, max: 1.5,
+            color: Math.random() < 0.25 ? '#ffffff' : p.color
+          });
+        }
+      }
+    } else {
+      p.vy += 240 * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.life <= 0) p.dead = true;
+    }
+  });
+  FX.push(...burst);
+  FX = FX.filter(p => !p.dead);
+}
+function drawFx() {
+  FX.forEach(p => {
+    if (p.kind === 'rocket') {
+      if (p.delay > 0) return;
+      R(Math.round(p.x / 2) * 2 - 2, Math.round(p.y / 2) * 2, 4, 8, '#fff3c4');
+      ctx.globalAlpha = 0.4;
+      R(Math.round(p.x / 2) * 2 - 2, Math.round(p.y / 2) * 2 + 10, 4, 6, PAL.amber);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      R(Math.round(p.x / 2) * 2 - 2, Math.round(p.y / 2) * 2 - 2, 4, 4, p.color);
+      ctx.globalAlpha = 1;
+    }
+  });
+}
 function showBanner() {
   const b = $('banner');
-  b.innerHTML = `<h2>${S.level.title.split('—')[1] || 'Level'} complete!</h2><p>Objectives met. ${S.idx + 1 < LEVELS.length ? 'Zooming out…' : ''}</p>`;
+  b.innerHTML = `<h2>${S.level.title.split('—')[1] || 'Level'} complete!</h2><p>${S.idx + 1 < LEVELS.length ? 'Next lesson in a moment…' : 'You built the whole chain!'}</p>`;
   b.classList.add('show');
   $('btnNext').hidden = S.idx + 1 >= LEVELS.length;
-  setTimeout(() => b.classList.remove('show'), 3200);
+  setTimeout(() => b.classList.remove('show'), 3800);
 }
 function unlockLevel(idx) {
   const cur = parseInt(localStorage.getItem(LS_KEY) || '0', 10);
@@ -982,6 +1053,8 @@ function buildLevelSelect() {
   if (S) sel.value = S.idx;
 }
 function startLevel(idx) {
+  clearTimeout(advanceTimer);
+  FX = [];
   S = newLevelState(idx);
   buildToolbar(); buildLevelSelect();
   $('lvlSel').value = idx;
