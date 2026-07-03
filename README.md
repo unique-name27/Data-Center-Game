@@ -1,128 +1,36 @@
-# Data-Center-Game
+# Data Center Tycoon — Connectivity Edition
 
-https://unique-name27.github.io/Data-Center-Game/
+A browser game that teaches how data moves inside a data center — and why **connectivity chips** (retimers, active cables, optics) exist.
 
-How to Play
+**Play it: https://unique-name27.github.io/Data-Center-Game/** — or just open `index.html` in any browser. No build step, no dependencies, no server required.
 
-Build working data-center systems by placing parts, wiring them together, and earning throughput (and optional money).
+The original **Data Center Builder** (baseboards, CPU/GPU/memory wiring, economy mode) is still playable at [classic.html](https://unique-name27.github.io/Data-Center-Game/classic.html).
 
-Goal
+## What it teaches
 
-Create complete systems on a baseboard.
-A system counts when at least one GPU on that baseboard can reach both a CPU and Memory through valid (green) wires. Each such GPU = 1 u/s throughput.
+| Level | Concept |
+|---|---|
+| 1 — Light it up | Racks, top-of-rack switches, and links: what "online" means |
+| 2 — The reach problem | Signal integrity: copper degrades with distance; **retimer chips** regenerate the signal |
+| 3 — Copper vs light | The real engineering trade: DAC vs AEC vs optical — cost, power, and reach |
+| 4 — Scale out | Leaf-spine fabrics, uplinks, and 2:1 oversubscription |
+| Sandbox | Free build with live throughput and power metrics |
 
-Controls
+The core teaching visual: data pulses travel along every cable and **visibly fade** as copper attenuates them. Below 30% health the link dies — unless a retimer chip on the route regenerates the signal back to 100%. Click anything for a plain-English explanation with a real-world note.
 
-Move parts: drag with the mouse.
+## Controls
 
-Buy parts: click an icon in the bottom shop row.
+- Pick a tool in the left palette (or press `1`–`9`), then click the floor
+- Cables: click a device, then click a second device
+- `Esc` cancels · `Del` removes the selection · Remove tool refunds 50%
+- Inspect tool: click any device or cable to see its status and explanation
 
-Connect wires: click [Connect], then click two things to wire them (part ↔ part, or part ↔ baseboard port). Click [Connect] again to exit.
+## Tech
 
-Delete: click [Delete], then click near a wire (or click a retimer) to delete.
+- Single `index.html` + `style.css` + `game.js` — vanilla JavaScript, canvas 2D
+- All graphics are drawn procedurally in code; there are no image assets
+- Level progress is saved in `localStorage`
 
-Reset: clears the board.
+## History
 
-Resize: the play area auto-resizes with your window.
-
-Parts & What They Do
-
-Baseboard – The “motherboard” for a system. It has ports around the edges (CPU, GPU, Memory, Switch, Networking, Mem-Expander).
-
-CPU – Connects to GPU/Memory/Networking/Switch/Mem-Expander. Max 4 total connections.
-
-GPU – Produces throughput when it can reach CPU and Memory on the same baseboard.
-
-Memory – Required for throughput.
-
-Switch – Multi-port hub; useful for branching. (Max 8 GPU connections.)
-
-Networking – Connects systems together (optional flavor for networks).
-
-Memory Expander – Lets you fan out memory; up to 8 memory connections.
-
-Retimer – Not a node you wire to. Drag it onto an existing wire to extend range and boost that wire’s allowed length.
-
-Wiring Rules (and Colors)
-
-What can connect?
-
-GPU ↔ CPU/Switch
-
-Memory ↔ CPU/Switch/Memory-Expander
-
-Memory-Expander ↔ CPU/Switch
-
-Networking ↔ CPU/Networking/Switch
-
-CPU ↔ GPU/Memory/Mem-Expander/Networking/Switch
-
-Baseboard ports: When wiring to a baseboard, you connect to its ports (they’re typed). The game auto-picks the nearest compatible port.
-
-Distance: Wires have a maximum length. If a wire is too long, add a retimer onto that wire to extend its allowed length.
-
-Colors:
-
-Green — valid and working (both endpoints are in the same baseboard system).
-
-Gray — valid but not working (e.g., spans different baseboards or doesn’t complete a path).
-
-Red — invalid (type mismatch, exceeds length, or connection limits).
-
-Connection limits: enforced per part (e.g., CPU 4 max; Switch GPU fan-out up to 8; Mem-Expander up to 8 memories).
-
-Throughput (and Optional Money)
-
-Throughput: Each GPU that can reach a CPU and Memory on the same baseboard contributes 1 u/s. The total shows at the top.
-
-Economy (Challenge Mode): Toggle Economy: ON at the top.
-
-Parts cost money (shown as “Money: $…”).
-
-Money is earned automatically from throughput (plus a tiny idle trickle).
-
-Shop icons dim if you can’t afford them.
-
-Toggles & Themes
-
-Economy: OFF by default (free build). Turn ON for a money challenge.
-
-Backplane: When ON, ports on the same baseboard have a virtual internal link to help internal routing.
-
-Theme: Space / Grid / Plain.
-
-Shooting Stars: Cosmetic effect for the Space theme (can be turned ON/OFF).
-
-Quick Start
-
-Buy/Place a Baseboard, CPU, Memory, and GPU.
-
-Click [Connect], wire GPU ↔ CPU, and CPU ↔ Memory (or use a Switch if you want to branch).
-
-Keep wires green (short enough, compatible types, same baseboard).
-
-Add a Retimer by dragging it onto a wire if a segment goes red from distance.
-
-Watch Throughput climb. Turn Economy ON if you want to earn/spend money.
-
-Tips
-
-Place parts near the baseboard you intend to use; wires only “work” (green) when both endpoints belong to the same baseboard system.
-
-If a wire turns red, either move parts closer or drop a retimer onto that wire.
-
-Use Switches to fan out to many GPUs from a CPU without exceeding CPU’s connection cap.
-
-Memory-Expanders are great for feeding lots of Memory while keeping rules valid.
-
-Troubleshooting
-
-“I can’t buy parts.” If Economy = ON, you might be out of money. Build a small working system to generate income.
-
-“My wires won’t turn green.” Check type compatibility, keep within distance (use retimers), and make sure both endpoints are attached to the same baseboard (ports matter).
-
-“Retimer doesn’t do anything.” Make sure you drop it on an existing wire (it snaps to the line and extends its allowable length).
-
-“Stuff looks cut off at the bottom.” The shop auto-positions above the bottom border; if your window is very short, try making it taller—the game view resizes dynamically.
-
-Happy building!
+The original game, **Data Center Builder** (Phaser, part-wiring with baseboards and an economy mode), lives on at `classic.html`. Earlier prototypes are preserved in this repo's git history.
