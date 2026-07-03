@@ -28,8 +28,9 @@ The core teaching visual: data pulses travel along every cable and **visibly fad
 
 - Pick a tool in the left palette (or press `1`–`9`), then click the floor
 - Cables: click a device, then click a second device
+- Move: with the Move / inspect tool, drag any device to a new spot — its cables re-route automatically
 - `Esc` cancels · `Del` removes the selection · Remove tool refunds 50%
-- Inspect tool: click any device or cable to see its status and explanation
+- Move / inspect tool: click any device or cable to see its status and explanation
 
 ## Tech
 

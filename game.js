@@ -329,6 +329,7 @@ let hoverTile = null;
 let toast = { msg: '', until: 0 };
 let lastT = 0, idSeq = 1;
 let FX = [], advanceTimer = 0;
+let drag = null;
 
 function newLevelState(idx) {
   const L = LEVELS[idx];
@@ -457,6 +458,22 @@ function tryCable(type, A, B) {
   if (S.money < spec.cost) return say('Not enough budget. Money doesn’t grow on trees!');
   S.money -= spec.cost;
   S.cables.push({ id: idSeq++, type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 });
+  recompute();
+}
+function moveEnt(ent, i, j) {
+  if (ent.locked) return say('That one came with the site — it stays.');
+  if (i === ent.i && j === ent.j) return;
+  if (entAt(i, j) || retAt(i, j)) return say('That spot is occupied.');
+  ent.i = i; ent.j = j;
+  S.cables.forEach(c => {
+    if (c.a === ent.id || c.b === ent.id) {
+      const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
+      c.path = lPath(A, B);
+      c.pulses = [];
+    }
+  });
+  if (S.retimers.some(r => !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j))))
+    say('Heads up: a retimer is no longer on any copper route.');
   recompute();
 }
 function removeThing(th) {
@@ -967,7 +984,18 @@ function frame(ts) {
   S.cables.forEach(drawCable);
   S.cables.forEach(c => { updatePulses(c, dt, ts); drawPulses(c); });
   S.retimers.forEach(r => drawRetimer(r, t));
-  S.ents.forEach(e => DRAW[e.type](e, t));
+  S.ents.forEach(e => {
+    if (drag && drag.moved && e === drag.ent) ctx.globalAlpha = 0.3;
+    DRAW[e.type](e, t);
+    ctx.globalAlpha = 1;
+  });
+  if (drag && drag.moved && hoverTile) {
+    const bad = entAt(hoverTile.i, hoverTile.j) || retAt(hoverTile.i, hoverTile.j);
+    ctx.globalAlpha = 0.65;
+    DRAW[drag.ent.type]({ i: hoverTile.i, j: hoverTile.j, id: drag.ent.id, online: drag.ent.online }, t);
+    ctx.globalAlpha = 1;
+    strokePaper(gx(hoverTile.i) + 3, gy(hoverTile.j) + 3, T - 6, T - 6, bad ? PAL.red : PAL.green, hoverTile.i * 9 + hoverTile.j, 3);
+  }
   if (S.pendA) strokePaper(gx(S.pendA.i) + 2, gy(S.pendA.j) + 2, T - 4, T - 4, PAL.green, S.pendA.id, 3);
   if (S.selected && S.selected.kind === 'ent')
     strokePaper(gx(S.selected.ent.i), gy(S.selected.ent.j), T, T, '#ffffff', S.selected.ent.id, 3);
@@ -994,8 +1022,22 @@ cvs.addEventListener('pointermove', ev => {
   const p = canvasXY(ev);
   mouse = { x: p.x, y: p.y, inside: true };
   hoverTile = tileAt(p.x, p.y);
+  if (drag && hoverTile && (hoverTile.i !== drag.ent.i || hoverTile.j !== drag.ent.j)) drag.moved = true;
+  if (drag) cvs.style.cursor = 'grabbing';
+  else if (S.tool === 'select') {
+    const th = hoverTile && entAt(hoverTile.i, hoverTile.j);
+    cvs.style.cursor = (th && !th.locked) ? 'grab' : 'default';
+  } else cvs.style.cursor = 'crosshair';
 });
 cvs.addEventListener('pointerleave', () => { mouse.inside = false; hoverTile = null; });
+cvs.addEventListener('pointerup', ev => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  const p = canvasXY(ev);
+  const tile = tileAt(p.x, p.y);
+  if (d.moved && tile) moveEnt(d.ent, tile.i, tile.j);
+});
+window.addEventListener('pointerup', () => { if (drag && !mouse.inside) drag = null; });
 cvs.addEventListener('pointerdown', ev => {
   const p = canvasXY(ev);
   const tile = tileAt(p.x, p.y);
@@ -1015,6 +1057,8 @@ cvs.addEventListener('pointerdown', ev => {
     return;
   }
   const th = thingAt(p.x, p.y);
+  if (th && th.kind === 'ent' && !th.ent.locked)
+    drag = { ent: th.ent, moved: false };
   S.selected = th;
   showInspector(th);
 });
@@ -1101,7 +1145,7 @@ function toolMeta(key) {
     const rs = RET_STATS[S.scale];
     return { label: RET.name, sub: `${fmtMoney(rs.cost)} · ${rs.watts} W` };
   }
-  if (key === 'select') return { label: 'Inspect', sub: 'click anything' };
+  if (key === 'select') return { label: 'Move / inspect', sub: 'click or drag' };
   return { label: 'Remove', sub: '50% refund' };
 }
 function buildToolbar() {
