@@ -18,7 +18,9 @@ The game zooms out through three scales — the same signal physics applies at e
 | 4 — The bottom U | The rack | Loose retimers vs an AEC — a retimed cable is the same chip, productized |
 | 5 — Down the row | The row | DAC vs AEC vs optical: cost, power, and reach |
 | 6 — Scale out | The row | Leaf-spine fabrics, uplinks, and 2:1 oversubscription |
-| Sandbox | The row | Free build with live throughput and power metrics |
+| 7 — The whole floor | The data center | Past the row it's all fiber; dual-homing and failure domains |
+| 8 — To the world | The data center | Multimode vs single-mode optics; the DCI room and the world outside |
+| Sandbox | The data center | Free build with live throughput and power metrics |
 
 The core teaching visual: data pulses travel along every cable and **visibly fade** as copper attenuates them. Below 30% health the link dies — unless a retimer chip on the route regenerates the signal back to 100%. Click anything for a plain-English explanation with a real-world note.
 

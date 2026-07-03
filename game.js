@@ -46,6 +46,15 @@ const SCALES = {
       cc: 'Spines interconnect through leaves in this game.',
       hh: 'Leaves connect to each other only through a spine.'
     }
+  },
+  dc: {
+    label: 'The data center', hubName: 'spine pod',
+    msg: {
+      nn: 'Rows interconnect through spine pods.',
+      nc: 'Rows reach the DCI room through spine pods.',
+      cc: 'One DCI room per building here.',
+      hh: 'Spine pods interconnect through the DCI/core.'
+    }
   }
 };
 
@@ -98,6 +107,24 @@ const CAT = {
     tag: 'Connects the leaves together',
     desc: 'Spine switches interconnect leaves so any rack can reach any other rack in three hops. Without spine uplinks, a leaf is an island.',
     real: 'Leaf-spine (Clos) fabric is how virtually every large data center scales past one switch.'
+  },
+  rw: {
+    scale: 'dc', role: 'node', name: 'Row of racks', cost: 150000, ports: 2, tput: 25.6,
+    tag: 'The row you built, seen from above',
+    desc: 'Everything from level 5 — racks, leaves, cables — collapsed into one block pushing 25.6 Tb/s. At this scale a single link is a liability: rows dual-home to two different spine pods so one failure can’t take them dark.',
+    real: 'Operators plan failure domains this way: lose a whole spine pod, keep the floor running.'
+  },
+  spine2: {
+    scale: 'dc', role: 'hub', name: 'Spine pod', cost: 25000, ports: 16,
+    tag: 'A cage full of spine switches',
+    desc: 'Whole rows uplink here. When the level requires it, spine pods need their own uplinks to the DCI room to reach the world.',
+    real: 'At this scale everything is fiber — copper physically cannot cross a data hall.'
+  },
+  dci: {
+    scale: 'dc', role: 'core', name: 'DCI gateway', cost: 40000, ports: 8,
+    tag: 'The door to the world',
+    desc: 'Data Center Interconnect: long-haul single-mode optics linking this building to other data centers and the internet. Your whole data center is one node in a planet-scale network.',
+    real: 'DCI links run 10 km to thousands of km — coherent optics push terabits down a single fiber pair.'
   }
 };
 
@@ -137,10 +164,22 @@ const CAB = {
     tag: 'Longest reach, biggest bill',
     desc: 'Optical transceivers convert electrons to light — only 1.5% loss per tile, but every link burns 14 W and costs real money. Lasers also fail more often than copper.',
     real: 'Optics can dominate the network power budget of a large AI cluster.'
+  },
+  mmf: {
+    scale: 'dc', name: 'Multimode optics', cost: 1800, watts: 11, loss: 4.5, color: '#4ad2e0', retime: false,
+    tag: 'Aqua fiber for inside the hall',
+    desc: 'Multimode fiber uses cheap VCSEL lasers — the budget optic. But the light bounces around inside the wide core, so reach is limited: 4.5% loss per tile. Great inside the hall, hopeless for the long haul.',
+    real: 'Multimode is the aqua-jacketed cable in every data center photo. At high speeds it reaches ~50–100 m.'
+  },
+  smf: {
+    scale: 'dc', name: 'Single-mode optics', cost: 4500, watts: 16, loss: 0.6, color: '#f0e05a', retime: false,
+    tag: 'Yellow fiber for the long haul',
+    desc: 'Single-mode fiber carries one clean beam down a hair-thin core — only 0.6% loss per tile, at a premium for the precision lasers. This is what crosses buildings and leaves them.',
+    real: 'Single-mode is the yellow-jacketed cable. It reaches 500 m to 10 km and beyond — all DCI runs on it.'
   }
 };
 
-const RET_STATS = { board: { cost: 30, watts: 4 }, rack: { cost: 300, watts: 3 }, row: { cost: 300, watts: 3 } };
+const RET_STATS = { board: { cost: 30, watts: 4 }, rack: { cost: 300, watts: 3 }, row: { cost: 300, watts: 3 }, dc: { cost: 300, watts: 3 } };
 const RET = {
   name: 'Retimer chip',
   tag: 'The connectivity chip itself',
@@ -232,13 +271,47 @@ const LEVELS = [
       <p class="tip">Every tier you add means more links — and more connectivity chips. That’s why this chip market is exploding alongside AI.</p>`
   },
   {
-    scale: 'row', title: 'Sandbox — Free build', sandbox: true, requireCore: false,
-    budget: 500000, tools: ['rk', 'leaf', 'spine', 'dac2', 'aec2', 'opt', 'retimer'],
+    scale: 'dc', title: 'Level 7 — The whole floor', requireCore: false, dualHome: true, powerCapW: 100,
+    budget: 15000, tools: ['mmf', 'smf'],
+    pre: [
+      { t: 'spine2', i: 7, j: 4 }, { t: 'spine2', i: 9, j: 4 },
+      { t: 'rw', i: 1, j: 1 }, { t: 'rw', i: 1, j: 7 },
+      { t: 'rw', i: 14, j: 1 }, { t: 'rw', i: 14, j: 7 }
+    ],
+    goals: [
+      { text: 'Bring all 4 rows online (dual-homed to both spine pods)', check: s => s.stats.online >= 4 },
+      { text: 'Keep link power at or under 100 W', check: s => s.stats.watts <= 100.001 }
+    ],
+    lesson: `<h2>The whole floor</h2>
+      <p>Final zoom-out. Your row is now one block among many, and the distances are 100 meters — <b>copper cannot play here at all</b>. Past the row, everything is fiber.</p>
+      <p>New rule at this scale: <b>failure matters</b>. One cable or one spine pod dying must not take a row dark, so every row needs healthy links to <b>two different spine pods</b>. That’s called dual-homing.</p>
+      <p class="tip">Multimode (aqua) is the affordable optic for inside the hall. Check what single-mode costs and ask yourself why.</p>`
+  },
+  {
+    scale: 'dc', title: 'Level 8 — To the world', requireCore: true, oversub: 2,
+    budget: 70000, tools: ['spine2', 'mmf', 'smf'],
+    pre: [
+      { t: 'dci', i: 15, j: 0 },
+      { t: 'rw', i: 1, j: 7 }, { t: 'rw', i: 5, j: 7 },
+      { t: 'rw', i: 9, j: 7 }, { t: 'rw', i: 13, j: 7 }
+    ],
+    goals: [
+      { text: 'Bring 4 rows online', check: s => s.stats.online >= 4 },
+      { text: 'Use at least 2 spine pods', check: s => s.stats.leavesUsed >= 2 }
+    ],
+    lesson: `<h2>To the world</h2>
+      <p>A data center that can’t reach other data centers is an island. In the corner sits the <b>DCI room</b> — Data Center Interconnect, the door to the world.</p>
+      <p>Place spine pods, uplink the rows with multimode, then get each pod to the DCI gateway. Watch the distance: multimode dies on the long diagonal. The far run needs <b>single-mode</b> — the yellow fiber that leaves buildings.</p>
+      <p class="tip">Every hop you’ve built — trace, DAC, AEC, leaf, spine, DCI — is one unbroken chain from a GPU’s pins to the internet.</p>`
+  },
+  {
+    scale: 'dc', title: 'Sandbox — The whole data center', sandbox: true, requireCore: false,
+    budget: 2000000, tools: ['rw', 'spine2', 'dci', 'mmf', 'smf'],
     pre: [],
-    goals: [{ text: 'Build the biggest, healthiest fabric you can', check: () => false }],
+    goals: [{ text: 'Build the biggest, healthiest floor you can', check: () => false }],
     lesson: `<h2>Sandbox</h2>
-      <p>Everything is unlocked and the budget is deep. Build your dream row — the HUD tracks throughput and link power, so chase the best <b>terabits per watt per dollar</b> you can.</p>
-      <p class="tip">Try the same fabric twice: once all-optical, once copper + retimers. Compare the power bill.</p>`
+      <p>The whole floor is yours and the budget is deep. Build rows, pods and DCI — the HUD tracks throughput and link power, so chase the best <b>terabits per watt per dollar</b> you can.</p>
+      <p class="tip">Try dual-homing everything, then delete one spine pod and watch what survives. That’s why redundancy is worth the money.</p>`
   }
 ];
 
@@ -315,12 +388,13 @@ function recompute() {
 
   let online = 0, tput = 0; const usedHubs = new Set();
   S.ents.filter(e => CAT[e.type].role === 'node').forEach(n => {
-    n.online = false;
+    const okHubs = new Set();
     for (const c of linksOf(n)) {
       const o = other(c, n);
-      if (o && CAT[o.type].role === 'hub' && hubOk[o.id]) { n.online = true; usedHubs.add(o.id); break; }
+      if (o && CAT[o.type].role === 'hub' && hubOk[o.id]) okHubs.add(o.id);
     }
-    if (n.online) { online++; tput += CAT[n.type].tput; }
+    n.online = okHubs.size >= (S.level.dualHome ? 2 : 1);
+    if (n.online) { online++; tput += CAT[n.type].tput; okHubs.forEach(h => usedHubs.add(h)); }
   });
 
   const rw = RET_STATS[S.scale].watts;
@@ -465,7 +539,16 @@ function drawRowBg() {
   R(OX, OY - 10, GRID_W * T, 6, PAL.amber);
   R(OX, OY + GRID_H * T + 4, GRID_W * T, 6, PAL.amber);
 }
-const BG = { board: drawBoardBg, rack: drawRackBg, row: drawRowBg };
+function drawDcBg() {
+  R(0, 0, CW, CH, PAL.bg);
+  outline(OX - 22, OY - 22, GRID_W * T + 44, GRID_H * T + 44, '#3a4358', 10);
+  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
+    R(gx(i), gy(j), T, T, (Math.floor(i / 2) + Math.floor(j / 2)) % 2 ? '#242833' : '#272b38');
+  R(gx(14), gy(0), 2 * T, 2 * T, '#1d3242');
+  outline(gx(14), gy(0), 2 * T, 2 * T, '#2a5a7a', 2);
+  R(OX + GRID_W * T / 2 - 48, OY + GRID_H * T + 12, 96, 10, PAL.bg);
+}
+const BG = { board: drawBoardBg, rack: drawRackBg, row: drawRowBg, dc: drawDcBg };
 
 /* ---------------- sprites ---------------- */
 function ledState(e, t) {
@@ -550,7 +633,35 @@ function drawRetimer(r, t) {
   R(x - 2, y - 2, 4, 4, on ? PAL.greenHi : PAL.green);
   if (on) outline(x - 16, y - 13, 32, 26, 'rgba(87,227,137,.25)', 2);
 }
-const DRAW = { gpu: drawGPU, cpu: drawCPU, mem: drawMem, server: drawServer, tor: drawTorLeaf, leaf: drawTorLeaf, spine: drawSpine, rk: drawRack };
+function drawRowBlock(e, t) {
+  const x = gx(e.i), y = gy(e.j);
+  R(x + 2, y + 16, 60, 34, PAL.ink);
+  for (let k = 0; k < 4; k++) {
+    R(x + 6 + k * 14, y + 19, 12, 28, PAL.steel);
+    R(x + 6 + k * 14, y + 19, 12, 3, PAL.lite);
+    R(x + 9 + k * 14, y + 25, 6, 18, PAL.dark);
+    R(x + 10 + k * 14, y + 27, 3, 3, ledState(e, t + k));
+  }
+  R(x + 2, y + 12, 60, 4, PAL.amber);
+}
+function drawSpinePod(e, t) {
+  const x = gx(e.i), y = gy(e.j);
+  R(x + 6, y + 4, 52, 56, PAL.purp);
+  R(x + 6, y + 4, 52, 4, PAL.purpHi);
+  for (let a = 0; a < 3; a++) for (let b = 0; b < 4; b++)
+    R(x + 12 + b * 12, y + 14 + a * 14, 8, 8, PAL.ink);
+  R(x + 50, y + 8, 4, 4, (Math.floor(t * 3 + e.id) % 2) ? '#e8dcff' : '#6a4ab0');
+}
+function drawDci(e, t) {
+  const x = gx(e.i), y = gy(e.j);
+  R(x + 8, y + 14, 48, 46, '#1d2436');
+  outline(x + 8, y + 14, 48, 46, '#2a5a7a', 2);
+  outline(x + 22, y + 28, 20, 20, '#4ad2e0', 3);
+  R(x + 30, y + 30, 4, 16, '#4ad2e0');
+  R(x + 30, y + 4, 4, 10, PAL.lite);
+  R(x + 28, y + 2, 8, 4, (Math.sin(t * 5) > 0) ? '#8fe4ff' : '#2a5a7a');
+}
+const DRAW = { gpu: drawGPU, cpu: drawCPU, mem: drawMem, server: drawServer, tor: drawTorLeaf, leaf: drawTorLeaf, spine: drawSpine, rk: drawRack, rw: drawRowBlock, spine2: drawSpinePod, dci: drawDci };
 
 /* ---------------- cables & pulses ---------------- */
 function segFill(x1, y1, x2, y2, w, color) {
@@ -756,6 +867,16 @@ function toolIcon(key) {
     r(10, 4, 26, 36, PAL.steel); r(10, 4, 26, 3, PAL.lite);
     r(13, 9, 20, 28, PAL.ink);
     for (let s2 = 0; s2 < 4; s2++) { r(14, 11 + s2 * 6, 18, 4, PAL.dark); r(28, 12 + s2 * 6, 2, 2, PAL.green); }
+  } else if (key === 'rw') {
+    r(5, 14, 36, 20, PAL.ink); r(5, 11, 36, 3, PAL.amber);
+    for (let k = 0; k < 4; k++) { r(7 + k * 9, 16, 7, 16, PAL.steel); r(9 + k * 9, 20, 3, 3, PAL.green); }
+  } else if (key === 'spine2') {
+    r(7, 6, 32, 34, PAL.purp); r(7, 6, 32, 3, PAL.purpHi);
+    for (let a = 0; a < 2; a++) for (let b = 0; b < 3; b++) r(11 + b * 9, 14 + a * 10, 6, 6, PAL.ink);
+  } else if (key === 'dci') {
+    r(9, 12, 28, 28, '#1d2436');
+    g.strokeStyle = '#4ad2e0'; g.lineWidth = 3; g.strokeRect(16, 19, 14, 14);
+    r(21, 4, 4, 8, PAL.lite); r(19, 2, 8, 3, '#8fe4ff');
   } else if (CAB[key]) {
     const col = CAB[key].color;
     r(4, 28, 16, 5, col); r(15, 14, 5, 19, col); r(15, 14, 26, 5, col);
@@ -819,7 +940,7 @@ function showInspector(th) {
       const hub = SCALES[S.scale].hubName;
       status = th.ent.online
         ? `<p class="ok">Status: online — pushing ${spec.tput} Tb/s.</p>`
-        : `<p class="bad">Status: offline — needs a healthy link to the ${hub}${S.level.requireCore ? ' (which needs its own upstream links)' : ''}.</p>`;
+        : `<p class="bad">Status: offline — needs ${S.level.dualHome ? `healthy links to two different ${hub}s` : `a healthy link to the ${hub}`}${S.level.requireCore ? ' (which needs its own upstream links)' : ''}.</p>`;
     }
     $('infoBody').innerHTML = `<h3>${spec.name}</h3><p class="tagline">${spec.tag}</p>${status}<p>${spec.desc}</p><p class="real"><b>Real world:</b> ${spec.real}</p>`;
   } else if (th.kind === 'cable') {
