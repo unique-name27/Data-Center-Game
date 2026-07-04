@@ -11,7 +11,7 @@ const T = 64;
 const CW = 1280, CH = 760;
 const OX = (CW - GRID_W * T) / 2, OY = 92;
 const FAIL = 30;               // signal health below this = dead link
-const LS_KEY = 'dct_progress_v2';
+const LS_KEY = 'dct_progress_v3';
 
 const PAL = {
   sky: '#7ec8e3', shadow: 'rgba(40,30,20,.28)',
@@ -197,128 +197,83 @@ const RET = {
 /* ---------------- levels ---------------- */
 const LEVELS = [
   {
-    scale: 'board', title: 'Level 1 — First light', requireCore: true, oversub: 99,
-    budget: 4000, tools: ['gpu', 'trace'],
-    pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'mem', i: 5, j: 4 }],
-    preCables: [{ a: 0, b: 1, type: 'trace' }],
-    goals: [{ text: 'Bring 2 GPUs online', check: s => s.stats.online >= 2 }],
-    lesson: `<h2>First light</h2>
-      <p>Zoom all the way in. Before there are data centers, there is a <b>circuit board</b>: a CPU, its memory, and empty PCIe slots.</p>
-      <p>Place two <b>GPUs</b> near the CPU and wire each one up with a <b>PCIe trace</b> (click the GPU, then the CPU). The pulses are your data moving over bare copper.</p>
-      <p class="tip">A GPU is online when it has a healthy trace to the CPU — and the CPU has memory attached (already wired for you).</p>`
+    scale: 'board', title: 'Level 1 — Build a server', requireCore: true, oversub: 2,
+    budget: 5200, tools: ['gpu', 'mem', 'trace', 'retimer'],
+    pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
+    goals: [
+      {
+        text: 'Attach 2 DIMMs to the CPU (1 per 2 GPUs)',
+        check: s => s.cables.filter(c => c.ok && [c.a, c.b].some(id => { const e = s.ents.find(x => x.id === id); return e && e.type === 'mem'; })).length >= 2
+      },
+      { text: 'Bring 4 GPUs online', check: s => s.stats.online >= 4 },
+      {
+        text: 'Rescue the riser GPU at the board edge (retimers!)',
+        check: s => { const g = s.ents.find(e => e.locked && e.type === 'gpu'); return !!(g && g.online); }
+      }
+    ],
+    lesson: `<h2>Level 1 — Build a server</h2>
+      <p>Everything in AI starts on one green board. Meet the cast:</p>
+      <p><b>CPU</b> — the boss in the middle. Every PCIe lane and every memory channel starts here.<br>
+      <b>DIMMs</b> — memory sticks. The CPU needs at least <b>1 DIMM for every 2 GPUs</b>, or the math starves.<br>
+      <b>GPUs</b> — the number crunchers. Each one needs its own <b>PCIe trace</b> to the CPU (click the GPU, then the CPU).</p>
+      <p>One GPU is already stuck on a riser at the far edge of the board. Copper traces lose <b>25% signal health per tile</b> and the data dies below 30% — so that long run needs <b>retimer chips</b> every couple of tiles. A retimer reads the smeared-out signal and retransmits it perfectly clean: health pops back to 100% at the chip.</p>
+      <p class="tip">Wire the near GPUs and DIMMs first, then rescue the riser. Watch a pulse fade as it travels — that fading is signal integrity, the whole reason retimers exist. And remember: a retimer can’t resurrect an already-dead signal, so place it before health drops under 30%.</p>`
   },
   {
-    scale: 'board', title: 'Level 2 — The long trace', requireCore: true, oversub: 99,
-    budget: 250, tools: ['trace', 'retimer'],
-    pre: [{ t: 'cpu', i: 2, j: 4 }, { t: 'mem', i: 1, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
-    preCables: [{ a: 0, b: 1, type: 'trace' }],
-    goals: [{ text: 'Bring the far GPU online', check: s => s.stats.online >= 1 }],
-    lesson: `<h2>The long trace</h2>
-      <p>This GPU sits on a riser at the far edge of the board. Copper is cheap, but at these speeds the signal <b>smears out</b> — 25% health per tile, and below 30% the data is gone.</p>
-      <p>Run the trace, watch the pulse fade and die, then place <b>retimer chips</b> along the route (every 2 tiles or so). Each one reads the blurry signal and retransmits it perfectly clean.</p>
-      <p class="tip">A retimer can’t resurrect a dead signal — place it before health falls under 30%.</p>`
-  },
-  {
-    scale: 'rack', title: 'Level 3 — Top of rack', requireCore: false,
-    budget: 26000, tools: ['server', 'dac1'],
-    pre: [{ t: 'tor', i: 8, j: 0 }],
-    goals: [{ text: 'Bring 3 servers online', check: s => s.stats.online >= 3 }],
-    lesson: `<h2>Top of rack</h2>
-      <p>Zoom out. Your board is now inside a <b>server</b>, and servers slide into a <b>rack</b>. At the top sits the <b>ToR (top-of-rack) switch</b> — the first hop out of the box.</p>
-      <p>Place three servers in the rack and connect each one to the ToR with a <b>copper DAC</b>. Notice why the switch lives at the top: short cables stay healthy and cheap.</p>
-      <p class="tip">Same physics as the board — copper degrades with distance. Keep servers close to the ToR.</p>`
-  },
-  {
-    scale: 'rack', title: 'Level 4 — The bottom U', requireCore: false,
-    budget: 1000, tools: ['dac1', 'aec1', 'retimer'],
-    pre: [{ t: 'tor', i: 8, j: 0 }, { t: 'server', i: 6, j: 8 }],
-    goals: [{ text: 'Bring the bottom server online', check: s => s.stats.online >= 1 }],
-    lesson: `<h2>The bottom U</h2>
-      <p>A server got racked at the very bottom, far from the ToR. A bare DAC dies on the way. You have two fixes:</p>
-      <p><b>Retimers</b> placed along a DAC — the board-scale trick, but each shelf costs $300 out here.<br>
-      An <b>AEC</b> — a copper cable with retimer chips already built into each connector shell.</p>
-      <p>Do the math against your $1,000 budget. Sometimes the smartest place for a retimer is inside the cable.</p>
-      <p class="tip">An AEC <i>is</i> the retimer lesson from level 2, productized.</p>`
-  },
-  {
-    scale: 'row', title: 'Level 5 — Down the row', requireCore: false, powerCapW: 30,
-    budget: 6000, tools: ['dac2', 'aec2', 'opt', 'retimer'],
+    scale: 'rack', title: 'Level 2 — Fill the rack', requireCore: false, powerCapW: 11,
+    budget: 34500, tools: ['server', 'dac1', 'aec1', 'retimer'],
     pre: [
-      { t: 'leaf', i: 2, j: 4 },
-      { t: 'rk', i: 4, j: 4 }, { t: 'rk', i: 7, j: 4 },
-      { t: 'rk', i: 11, j: 4 }, { t: 'rk', i: 13, j: 6 }
+      { t: 'tor', i: 8, j: 0 },
+      { t: 'server', i: 11, j: 3 }, { t: 'server', i: 6, j: 8 }
     ],
     goals: [
-      { text: 'Bring all 4 racks online', check: s => s.stats.online >= 4 },
-      { text: 'Keep link power at or under 30 W', check: s => s.stats.watts <= 30.001 }
+      { text: 'Bring 6 servers online', check: s => s.stats.online >= 6 },
+      {
+        text: 'Connect both pre-racked servers (mid-rack and bottom)',
+        check: s => s.ents.filter(e => e.locked && e.type === 'server').every(e => e.online)
+      },
+      { text: 'Keep link power at or under 11 W', check: s => s.stats.watts <= 11.001 }
     ],
-    lesson: `<h2>Down the row</h2>
-      <p>Zoom out again. Racks stand in a <b>row</b>, and their uplinks converge on a <b>leaf switch</b>. Four racks sit at different distances — and there are three ways to cross a row:</p>
-      <p><b>Copper DAC</b> — nearly free, zero power, very short.<br>
-      <b>AEC</b> — retimed copper. Medium cost, medium power, good reach.<br>
-      <b>Optical</b> — goes anywhere, but 14 W and $2,500 per link.</p>
-      <p>All-optical would blow your 30 W power cap. Match each distance to the right technology.</p>
-      <p class="tip">Click a cable after placing it to see its signal health.</p>`
+    lesson: `<h2>Level 2 — Fill the rack</h2>
+      <p>Zoom out: your board is now inside a <b>server</b>, and servers stack in a rack with the <b>ToR (top-of-rack) switch</b> at the top. It lives up there on purpose — most cables stay short and cheap.</p>
+      <p>Six servers need to reach the ToR. Same physics as the board, new toolbox:</p>
+      <p><b>Copper DAC</b> — passive cable, almost free, 20% loss per tile. Perfect near the top.<br>
+      <b>Retimer</b> — $300 and 3 W buys a mid-run signal cleanup. Right for the middle of the rack.<br>
+      <b>AEC</b> — copper with retimer chips factory-built into each connector shell. The only sane option for the bottom U — it <i>is</i> the retimer trick, productized.</p>
+      <p>Your power cap is <b>11 W</b>. All-AEC won’t fit — match each distance to the cheapest technology that survives it.</p>
+      <p class="tip">Two servers came pre-racked in awkward spots. That’s data center life. Place your four wherever you like — closer to the ToR is cheaper.</p>`
   },
   {
-    scale: 'row', title: 'Level 6 — Scale out', requireCore: true, oversub: 2,
-    budget: 12000, tools: ['leaf', 'dac2', 'aec2', 'opt', 'retimer'],
+    scale: 'row', title: 'Level 3 — Connect the row', requireCore: true, oversub: 2, powerCapW: 30,
+    budget: 13000, tools: ['leaf', 'dac2', 'aec2', 'opt', 'retimer'],
     pre: [
       { t: 'spine', i: 8, j: 0 },
-      { t: 'rk', i: 4, j: 6 }, { t: 'rk', i: 6, j: 6 },
-      { t: 'rk', i: 10, j: 6 }, { t: 'rk', i: 12, j: 6 }
+      { t: 'rk', i: 2, j: 6 }, { t: 'rk', i: 4, j: 6 },
+      { t: 'rk', i: 11, j: 6 }, { t: 'rk', i: 13, j: 6 },
+      { t: 'rk', i: 15, j: 8 }
     ],
     goals: [
-      { text: 'Bring 4 racks online', check: s => s.stats.online >= 4 },
-      { text: 'Use at least 2 leaf switches', check: s => s.stats.leavesUsed >= 2 }
+      { text: 'Bring all 5 racks online', check: s => s.stats.online >= 5 },
+      { text: 'Use at least 2 leaf switches', check: s => s.stats.leavesUsed >= 2 },
+      { text: 'Keep link power at or under 30 W', check: s => s.stats.watts <= 30.001 }
     ],
-    lesson: `<h2>Scale out</h2>
-      <p>One switch can’t host every row. Data centers scale with a <b>leaf-spine</b> fabric: racks → leaves, leaves → spine, and any rack reaches any other in three hops.</p>
-      <p>Uplinks are shared — each leaf needs at least <b>one healthy spine uplink per two racks</b> (2:1 oversubscription, a common real-world ratio).</p>
-      <p class="tip">Every tier you add means more links — and more connectivity chips. That’s why this chip market is exploding alongside AI.</p>`
-  },
-  {
-    scale: 'dc', title: 'Level 7 — The whole floor', requireCore: false, dualHome: true, powerCapW: 100,
-    budget: 15000, tools: ['mmf', 'smf'],
-    pre: [
-      { t: 'spine2', i: 7, j: 4 }, { t: 'spine2', i: 9, j: 4 },
-      { t: 'rw', i: 1, j: 1 }, { t: 'rw', i: 1, j: 7 },
-      { t: 'rw', i: 14, j: 1 }, { t: 'rw', i: 14, j: 7 }
-    ],
-    goals: [
-      { text: 'Bring all 4 rows online (dual-homed to both spine pods)', check: s => s.stats.online >= 4 },
-      { text: 'Keep link power at or under 100 W', check: s => s.stats.watts <= 100.001 }
-    ],
-    lesson: `<h2>The whole floor</h2>
-      <p>Final zoom-out. Your row is now one block among many, and the distances are 100 meters — <b>copper cannot play here at all</b>. Past the row, everything is fiber.</p>
-      <p>New rule at this scale: <b>failure matters</b>. One cable or one spine pod dying must not take a row dark, so every row needs healthy links to <b>two different spine pods</b>. That’s called dual-homing.</p>
-      <p class="tip">Multimode (aqua) is the affordable optic for inside the hall. Check what single-mode costs and ask yourself why.</p>`
-  },
-  {
-    scale: 'dc', title: 'Level 8 — To the world', requireCore: true, oversub: 2,
-    budget: 70000, tools: ['spine2', 'mmf', 'smf'],
-    pre: [
-      { t: 'dci', i: 15, j: 0 },
-      { t: 'rw', i: 1, j: 7 }, { t: 'rw', i: 5, j: 7 },
-      { t: 'rw', i: 9, j: 7 }, { t: 'rw', i: 13, j: 7 }
-    ],
-    goals: [
-      { text: 'Bring 4 rows online', check: s => s.stats.online >= 4 },
-      { text: 'Use at least 2 spine pods', check: s => s.stats.leavesUsed >= 2 }
-    ],
-    lesson: `<h2>To the world</h2>
-      <p>A data center that can’t reach other data centers is an island. In the corner sits the <b>DCI room</b> — Data Center Interconnect, the door to the world.</p>
-      <p>Place spine pods, uplink the rows with multimode, then get each pod to the DCI gateway. Watch the distance: multimode dies on the long diagonal. The far run needs <b>single-mode</b> — the yellow fiber that leaves buildings.</p>
-      <p class="tip">Every hop you’ve built — trace, DAC, AEC, leaf, spine, DCI — is one unbroken chain from a GPU’s pins to the internet.</p>`
+    lesson: `<h2>Level 3 — Connect the row</h2>
+      <p>Final zoom: racks (each one a whole level 2) stand in a <b>row</b>, and the row needs a network. This is where data centers earn the name <b>fabric</b>:</p>
+      <p><b>Leaf switches</b> — you place these among the racks; every rack uplinks to a leaf.<br>
+      <b>Spine switch</b> — already installed at the top. Each leaf needs <b>1 healthy spine uplink per 2 racks</b> (2:1 oversubscription — a real-world ratio).<br>
+      <b>Cables</b> — DAC for adjacent hops, AEC or retimed DAC for the middle distances, and <b>optical</b> for anything, at 14 W and $2,500 a link.</p>
+      <p>Your power budget is <b>30 W</b> — going all-optical blows it instantly. Copper where you can, optics only where you must: that’s the actual job of a data center network engineer.</p>
+      <p class="tip">The corner rack is far from everything. Retimed DAC, AEC, optical — or a third leaf? Do the math on dollars <i>and</i> watts. Drag things around until it clicks.</p>`
   },
   {
     scale: 'dc', title: 'Sandbox — The whole data center', sandbox: true, requireCore: false,
     budget: 2000000, tools: ['rw', 'spine2', 'dci', 'mmf', 'smf'],
     pre: [],
     goals: [{ text: 'Build the biggest, healthiest floor you can', check: () => false }],
-    lesson: `<h2>Sandbox</h2>
-      <p>The whole floor is yours and the budget is deep. Build rows, pods and DCI — the HUD tracks throughput and link power, so chase the best <b>terabits per watt per dollar</b> you can.</p>
-      <p class="tip">Try dual-homing everything, then delete one spine pod and watch what survives. That’s why redundancy is worth the money.</p>`
+    lesson: `<h2>Sandbox — The whole data center</h2>
+      <p>Graduation. The whole floor is yours: <b>rows</b> (each one a level 3), <b>spine pods</b>, and the <b>DCI gateway</b> that links this building to the world. At this scale copper can’t play at all — it’s aqua <b>multimode</b> fiber for inside the hall and yellow <b>single-mode</b> for the long hauls.</p>
+      <p>The HUD tracks throughput and link power — chase the best <b>terabits per watt per dollar</b> you can.</p>
+      <p class="tip">Pro move: connect every row to <i>two</i> spine pods (dual-homing), then delete one pod and watch what survives. That’s why redundancy is worth the money.</p>`
   }
 ];
 
@@ -450,8 +405,6 @@ function tryCable(type, A, B) {
   else if (pair === 'core-node') return say(m.nc || m.nn);
   else if (pair === 'core-core') return say(m.cc || 'Those two don’t connect.');
   else return say(m.hh || 'Those two don’t connect.');
-  if (S.cables.some(c => (c.a === A.id && c.b === B.id) || (c.a === B.id && c.b === A.id)))
-    return say('Those two are already connected.');
   if (portCount(A) >= CAT[A.type].ports) return say(`${CAT[A.type].name} is out of ports.`);
   if (portCount(B) >= CAT[B.type].ports) return say(`${CAT[B.type].name} is out of ports.`);
   const spec = CAB[type];
@@ -799,6 +752,9 @@ const DRAW = { gpu: drawGPU, cpu: drawCPU, mem: drawMem, server: drawServer, tor
 /* ---------------- cables & pulses ---------------- */
 function wigglePts(c) {
   const pts = c.path.map(p => [cx(p.i), cy(p.j)]);
+  const twins = S.cables.filter(x => (x.a === c.a && x.b === c.b) || (x.a === c.b && x.b === c.a));
+  const lane = twins.indexOf(c);
+  const laneOff = twins.length > 1 ? (lane - (twins.length - 1) / 2) * 7 : 0;
   const out = [];
   for (let k = 0; k < pts.length - 1; k++) {
     const [x1, y1] = pts[k], [x2, y2] = pts[k + 1];
@@ -808,7 +764,7 @@ function wigglePts(c) {
     for (let s = 0; s < steps; s++) {
       const f = s / steps;
       const bx = x1 + (x2 - x1) * f, by = y1 + (y2 - y1) * f;
-      const w = Math.sin((bx + by) * 0.12 + c.id) * 2.5;
+      const w = Math.sin((bx + by) * 0.12 + c.id) * 2.5 + laneOff;
       out.push([bx + (horiz ? 0 : w), by + (horiz ? w : 0), k + f]);
     }
   }

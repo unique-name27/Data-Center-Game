@@ -8,19 +8,14 @@ The original **Data Center Builder** (baseboards, CPU/GPU/memory wiring, economy
 
 ## What it teaches
 
-The game zooms out through three scales — the same signal physics applies at every one:
+Three detailed levels, one per scale — the same signal physics applies at every one:
 
-| Level | Scale | Concept |
+| Level | Scale | What you build and learn |
 |---|---|---|
-| 1 — First light | Inside the server | GPUs, the CPU root complex, memory, PCIe traces |
-| 2 — The long trace | Inside the server | Signal integrity: copper degrades with distance; **retimer chips** regenerate the signal |
-| 3 — Top of rack | The rack | Servers, ToR switches, and why the switch lives at the top |
-| 4 — The bottom U | The rack | Loose retimers vs an AEC — a retimed cable is the same chip, productized |
-| 5 — Down the row | The row | DAC vs AEC vs optical: cost, power, and reach |
-| 6 — Scale out | The row | Leaf-spine fabrics, uplinks, and 2:1 oversubscription |
-| 7 — The whole floor | The data center | Past the row it's all fiber; dual-homing and failure domains |
-| 8 — To the world | The data center | Multimode vs single-mode optics; the DCI room and the world outside |
-| Sandbox | The data center | Free build with live throughput and power metrics |
+| 1 — Build a server | Inside the server | CPU, DIMMs (memory channels), 4 GPUs on PCIe traces; signal integrity and **retimer chips** rescue a far riser GPU |
+| 2 — Fill the rack | The rack | 6 servers up to the ToR switch under a power cap: DAC for short hops, loose retimers mid-rack, an AEC (retimers built into the cable) for the bottom U |
+| 3 — Connect the row | The row | Place leaf switches, uplink 5 racks, reach the spine at 2:1 oversubscription; DAC vs AEC vs optical under a 30 W power budget |
+| Sandbox | The data center | The whole floor: rows, spine pods, DCI gateway, multimode vs single-mode fiber, dual-homing experiments |
 
 The core teaching visual: data pulses travel along every cable and **visibly fade** as copper attenuates them. Below 30% health the link dies — unless a retimer chip on the route regenerates the signal back to 100%. Click anything for a plain-English explanation with a real-world note.
 
