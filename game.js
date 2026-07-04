@@ -270,9 +270,9 @@ const LEVELS = [
     budget: 2000000, tools: ['rw', 'spine2', 'dci', 'mmf', 'smf'],
     pre: [],
     goals: [{ text: 'Build the biggest, healthiest floor you can', check: () => false }],
-    lesson: `<h2>Sandbox — The whole data center</h2>
-      <p>Graduation. The whole floor is yours: <b>rows</b> (each one a level 3), <b>spine pods</b>, and the <b>DCI gateway</b> that links this building to the world. At this scale copper can’t play at all — it’s aqua <b>multimode</b> fiber for inside the hall and yellow <b>single-mode</b> for the long hauls.</p>
-      <p>The HUD tracks throughput and link power — chase the best <b>terabits per watt per dollar</b> you can.</p>
+    lesson: `<h2>Welcome — this is your data center</h2>
+      <p>Free build, deep budget. Place <b>rows of racks</b>, <b>spine pods</b>, and the <b>DCI gateway</b> that links the building to the world, then wire them with aqua <b>multimode</b> fiber (inside the hall) and yellow <b>single-mode</b> (the long hauls). The HUD tracks throughput and link power.</p>
+      <p>Want to know how all of it actually works, from a GPU’s pins on up? Hit the green <b>▶ Start campaign</b> button — three levels: build a server, fill a rack, connect the row.</p>
       <p class="tip">Pro move: connect every row to <i>two</i> spine pods (dual-homing), then delete one pod and watch what survives. That’s why redundancy is worth the money.</p>`
   }
 ];
@@ -1101,6 +1101,9 @@ function updateHUD() {
   $('mPower').textContent = S.stats.watts + ' W' + (cap ? ' / ' + cap + ' W' : '');
   $('mPower').classList.toggle('bad', !!cap && S.stats.watts > cap);
   $('levelName').textContent = SCALES[S.scale].label + ' · ' + S.level.title;
+  const mode = $('btnMode');
+  mode.textContent = S.level.sandbox ? '▶ Start campaign' : 'Sandbox';
+  mode.classList.toggle('big', !!S.level.sandbox);
 }
 function updateGoals() {
   const ul = $('goalList'); ul.innerHTML = '';
@@ -1242,7 +1245,7 @@ function buildLevelSelect() {
   LEVELS.forEach((L, n) => {
     const o = document.createElement('option');
     o.value = n; o.textContent = L.title;
-    o.disabled = n > maxUnlocked();
+    o.disabled = n > maxUnlocked() && !L.sandbox;
     sel.appendChild(o);
   });
   if (S) sel.value = S.idx;
@@ -1259,6 +1262,7 @@ function startLevel(idx) {
   showLesson();
 }
 
+$('btnMode').onclick = () => startLevel(S.level.sandbox ? 0 : LEVELS.length - 1);
 $('modalClose').onclick = () => $('modal').classList.remove('open');
 $('btnLesson').onclick = showLesson;
 $('btnRestart').onclick = () => startLevel(S.idx);
@@ -1270,6 +1274,6 @@ $('lvlSel').onchange = ev => startLevel(parseInt(ev.target.value, 10));
   const dpr = window.devicePixelRatio || 1;
   cvs.width = CW * dpr; cvs.height = CH * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  startLevel(0);
+  startLevel(LEVELS.length - 1);
   requestAnimationFrame(frame);
 })();

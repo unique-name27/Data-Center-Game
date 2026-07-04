@@ -43,6 +43,15 @@ body {
 }
 #hud button:hover { border-color: var(--accent); }
 #btnNext { background: #1d4ed8; border-color: #1d4ed8; font-weight: 600; }
+#btnMode.big {
+  background: #2e7d32; border-color: #43d15f; color: #fff;
+  font-weight: 700; font-size: 15px; padding: 8px 18px;
+  animation: modepulse 2s ease-in-out infinite;
+}
+@keyframes modepulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(67, 209, 95, .5); }
+  50% { box-shadow: 0 0 0 7px rgba(67, 209, 95, 0); }
+}
 
 /* ---- layout ---- */
 main { flex: 1; display: flex; min-height: 0; }
