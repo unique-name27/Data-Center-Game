@@ -121,13 +121,13 @@ const LEVELS = [
       { text: 'Bring 6 GPUs online', check: s => s.stats.online >= 6 },
       { text: 'Fan out through a PCIe switch', check: s => s.stats.switchUsed },
       { text: 'Feed the board memory through a CXL controller', check: s => s.stats.memctlUsed },
-      { text: 'Wire a NIC out to the rack uplink', check: s => s.stats.nicUp }
+      { text: 'Wire a NIC out to the rack uplink (AEC or AOC)', check: s => s.stats.nicUp }
     ],
     lesson: `<h2>Lesson 2 — Build the full server</h2>
       <p>Now build a real GPU server. Six GPUs need to come online — but the <b>CPU has only 4 ports</b>, so you can’t just wire everything to it:</p>
       <p><b>PCIe switch</b> — turns one CPU port into eight. Put your GPUs behind it.<br>
       <b>CXL memory controller</b> — fans one port out to a whole bank of DIMMs.<br>
-      <b>NIC</b> — wire it inward to the CPU or switch, then run an <b>external link</b> out to the <b>rack uplink</b> by the sign.</p>
+      <b>NIC</b> — wire it inward to the CPU or switch, then run an <b>external link</b> out to the <b>rack uplink</b> by the sign. Links to other racks are real cables — an <b>AEC or AOC</b>, never a board trace.</p>
       <p><b>Cables</b> — for GPUs on far shelves, reach for an <b>AEC</b> (retimed copper) or an <b>AOC</b> (optical, longest reach). Bare traces still need <b>retimers</b> on long runs.</p>
       <p class="tip">A GPU is online only when it can reach a CPU <i>and</i> memory — through the switch counts. Need another CPU? Drop one.</p>`
   },
@@ -266,6 +266,8 @@ function tryCable(type, A, B) {
   if (A.id === B.id) return say('Connect two different devices.');
   if (!(ALLOWED_BOARD[A.type] || []).includes(B.type))
     return say(`${CAT[A.type].name} plugs into: ${(ALLOWED_BOARD[A.type] || []).map(k => CAT[k].name).join(', ')}.`);
+  if ((A.type === 'uplink' || B.type === 'uplink') && type !== 'aecb' && type !== 'aocb')
+    return say('Links to other racks are real cables — use an AEC or AOC, not a board trace.');
   if (portCount(A) >= CAT[A.type].ports) return say(`${CAT[A.type].name} is out of ports.`);
   if (portCount(B) >= CAT[B.type].ports) return say(`${CAT[B.type].name} is out of ports.`);
   S.cables.push({ id: idSeq++, type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 });
@@ -1112,7 +1114,7 @@ function buildLevelSelect() {
   LEVELS.forEach((L, n) => {
     const o = document.createElement('option');
     o.value = n; o.textContent = L.title;
-    o.disabled = n > maxUnlocked() && !L.sandbox;
+    o.disabled = false;
     sel.appendChild(o);
   });
   if (S) sel.value = S.idx;
