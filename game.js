@@ -10,7 +10,7 @@ const T = 64;
 const CW = 1280, CH = 760;
 const OX = (CW - GRID_W * T) / 2, OY = 92;
 const FAIL = 30;               // signal health below this = dead link
-const LS_KEY = 'dct_progress_v3';
+const LS_KEY = 'dct_progress_v4';
 
 const PAL = {
   bg: '#0b0d14', ink: '#0f1120', steel: '#333c57', lite: '#566c86', hi: '#94b0c2',
@@ -19,7 +19,8 @@ const PAL = {
 const FALLBACK = {
   gpu: '#5a6acf', cpu: '#3b5dc9', mem: '#f5c542', server: '#36aebf',
   tor: '#2f7a5c', leaf: '#2f7a5c', spine: '#8f6ac2', rk: '#566c86',
-  rw: '#c8823f', spine2: '#8f6ac2', dci: '#4ad2e0'
+  rw: '#c8823f', spine2: '#8f6ac2', dci: '#4ad2e0',
+  pswitch: '#2f7a5c', memctl: '#b48ae8', nic: '#e8720c'
 };
 
 /* ---------------- sprites (original art) ---------------- */
@@ -31,6 +32,9 @@ const SPR = {
   tor: { src: 'assets/switch.png', size: 58 },
   leaf: { src: 'assets/switch.png', size: 58 },
   spine: { src: 'assets/networking.png', size: 60 },
+  pswitch: { src: 'assets/switch.png', size: 56 },
+  memctl: { src: 'assets/memoryExpander.png', size: 56 },
+  nic: { src: 'assets/networking.png', size: 54 },
   rk: { src: 'assets/props4.png', rect: [1530, 1416, 59, 136], size: 62 },
   rw: { src: 'assets/props4.png', rect: [1462, 3003, 196, 101], size: 62 },
   spine2: { src: 'assets/networking.png', size: 62 },
@@ -107,6 +111,24 @@ const CAT = {
     desc: 'GPUs pull their working data through the CPU from system memory. The CPU needs 1 DIMM per 2 GPUs or nothing computes.',
     real: 'Memory bandwidth is so precious that a whole chip category (CXL memory controllers) exists just to attach more of it.'
   },
+  pswitch: {
+    scale: 'board', role: 'hub', name: 'PCIe switch', cost: 600, ports: 8,
+    tag: 'Fan-out for your lanes',
+    desc: 'The CPU has only 4 ports here — a PCIe switch turns one of them into eight. GPUs, memory controllers and NICs behind the switch all reach the CPU through it.',
+    real: 'PCIe fabric switches (like Astera Labs’ Scorpio or Broadcom’s PEX) are how one CPU hosts a dozen GPUs.'
+  },
+  memctl: {
+    scale: 'board', role: 'core', name: 'CXL memory controller', cost: 400, ports: 8,
+    tag: 'More memory than you have ports',
+    desc: 'A memory controller fans one link out to a whole bank of DIMMs. Memory behind it still counts — GPUs reach it through the CPU or a switch.',
+    real: 'CXL memory controllers (like Astera Labs’ Leo) attach terabytes of extra memory over PCIe-style links.'
+  },
+  nic: {
+    scale: 'board', role: 'util', name: 'NIC (network card)', cost: 350, ports: 2,
+    tag: 'The server’s door to the network',
+    desc: 'Everything you build in this box eventually talks to other servers through the NIC. Wire it to the CPU or a switch — at the next scale up, this is the port the rack cables plug into.',
+    real: 'Modern AI servers carry multiple 400–800G NICs — some designs give every GPU its own.'
+  },
   server: {
     scale: 'rack', role: 'node', name: 'GPU server', cost: 8000, ports: 1, tput: 0.8,
     tag: 'Your board, boxed and racked',
@@ -164,6 +186,18 @@ const CAB = {
     desc: 'A copper trace is nearly free — but at PCIe Gen6 speeds the signal smears out fast (25% health per tile). Long runs need retimer chips placed along the route.',
     real: 'Past ~30 cm of board copper at Gen5/Gen6, designers reach for a retimer. That’s why they sit on motherboards and riser cards.'
   },
+  aecb: {
+    scale: 'board', name: 'AEC (retimed copper cable)', cost: 120, watts: 5, loss: 6, color: '#3fc8c8', retime: false,
+    tag: 'Copper with retimers in the plugs',
+    desc: 'An Active Electrical Cable is copper with a retimer chip inside each connector shell — 6% loss per tile instead of 25%. The mid-range answer when a bare trace can’t make it and loose retimers get expensive.',
+    real: 'Inside GPU servers, AECs carry PCIe between boards and shelves — built on the same retimer silicon you place by hand.'
+  },
+  aocb: {
+    scale: 'board', name: 'AOC (active optical cable)', cost: 300, watts: 9, loss: 1.0, color: '#5aa7ff', retime: false,
+    tag: 'Light inside the box',
+    desc: 'An Active Optical Cable converts the signal to light: 1% loss per tile, reach basically unlimited at this scale. You pay in dollars and watts — lasers are never free, and they fail more often than copper.',
+    real: 'AOC vs AEC is a live engineering debate: optics reach farther; copper sips power and fails less.'
+  },
   dac1: {
     scale: 'rack', name: 'Copper DAC', cost: 150, watts: 0.2, loss: 20, color: '#c8823f', retime: true,
     tag: 'Cheap, cool… and short',
@@ -175,6 +209,12 @@ const CAB = {
     tag: 'Copper with retimers built in',
     desc: 'An AEC is a copper cable with a retimer chip inside each connector shell, constantly cleaning the signal — only 6% loss per tile. Compare its price to placing loose retimers along a DAC.',
     real: 'AECs are one of the fastest-growing connectivity products — built around retimer silicon from companies like Astera Labs, Marvell and Broadcom.'
+  },
+  aoc1: {
+    scale: 'rack', name: 'AOC (active optical cable)', cost: 1200, watts: 9, loss: 1.2, color: '#5aa7ff', retime: false,
+    tag: 'Light in the rack',
+    desc: 'Optical reach in a plug-and-play cable — 1.2% loss per tile. More power and money than an AEC; use it when copper truly can’t make the distance.',
+    real: 'Racks mix DAC, AEC and AOC by shelf position — exactly the trade you’re making here.'
   },
   dac2: {
     scale: 'row', name: 'Copper DAC', cost: 150, watts: 0.2, loss: 25, color: '#c8823f', retime: true,
@@ -219,31 +259,89 @@ const RET = {
 /* ---------------- levels ---------------- */
 const LEVELS = [
   {
-    scale: 'board', title: 'Level 1 — Build a server', requireCore: true, oversub: 2,
-    budget: 5200, tools: ['gpu', 'mem', 'trace', 'retimer'],
-    pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
+    scale: 'board', title: 'Level 1 — First light',
+    budget: 1800, tools: ['gpu', 'mem', 'trace'],
+    pre: [{ t: 'cpu', i: 7, j: 4 }],
     goals: [
-      {
-        text: 'Attach 2 DIMMs to the CPU (1 per 2 GPUs)',
-        check: s => s.cables.filter(c => c.ok && [c.a, c.b].some(id => { const e = s.ents.find(x => x.id === id); return e && e.type === 'mem'; })).length >= 2
-      },
-      { text: 'Bring 4 GPUs online', check: s => s.stats.online >= 4 },
-      {
-        text: 'Rescue the riser GPU at the board edge (retimers!)',
-        check: s => { const g = s.ents.find(e => e.locked && e.type === 'gpu'); return !!(g && g.online); }
-      }
+      { text: 'Attach a DIMM to the CPU', check: s => s.stats.memsReach >= 1 },
+      { text: 'Bring a GPU online (it needs CPU + memory)', check: s => s.stats.online >= 1 }
     ],
-    lesson: `<h2>Level 1 — Build a server</h2>
-      <p>Everything in AI starts on one green board. Meet the cast:</p>
-      <p><b>CPU</b> — the boss in the middle. Every PCIe lane and every memory channel starts here.<br>
-      <b>DIMMs</b> — memory sticks. The CPU needs at least <b>1 DIMM for every 2 GPUs</b>, or the math starves.<br>
-      <b>GPUs</b> — the number crunchers. Each one needs its own <b>PCIe trace</b> to the CPU (click the GPU, then the CPU).</p>
-      <p>One GPU is already stuck on a riser at the far edge of the board. Copper traces lose <b>25% signal health per tile</b> and the data dies below 30% — so that long run needs <b>retimer chips</b> every couple of tiles. A retimer reads the smeared-out signal and retransmits it perfectly clean: health pops back to 100% at the chip.</p>
-      <p class="tip">Wire the near GPUs and DIMMs first, then rescue the riser. Watch a pulse fade as it travels — that fading is signal integrity, the whole reason retimers exist. And remember: a retimer can’t resurrect an already-dead signal, so place it before health drops under 30%.</p>`
+    lesson: `<h2>Level 1 — First light</h2>
+      <p>This is a server board, and the rule that runs this whole game is simple:</p>
+      <p><b>A GPU only works when it can reach a CPU <i>and</i> memory.</b></p>
+      <p>Place a <b>DIMM</b> and a <b>GPU</b> next to the CPU and wire each with a <b>PCIe trace</b> (click one device, then the other). The pulses you’ll see are your data moving over bare copper.</p>
+      <p class="tip">Keep things close — copper traces lose 25% signal health per tile, and below 30% the data is gone.</p>`
   },
   {
-    scale: 'rack', title: 'Level 2 — Fill the rack', requireCore: false, powerCapW: 11,
-    budget: 34500, tools: ['server', 'dac1', 'aec1', 'retimer'],
+    scale: 'board', title: 'Level 2 — The long trace',
+    budget: 250, tools: ['trace', 'retimer'],
+    pre: [{ t: 'cpu', i: 2, j: 4 }, { t: 'mem', i: 1, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
+    preCables: [{ a: 0, b: 1, type: 'trace' }],
+    goals: [{ text: 'Rescue the riser GPU at the board edge', check: s => s.stats.online >= 1 }],
+    lesson: `<h2>Level 2 — The long trace</h2>
+      <p>This GPU sits on a riser at the far edge of the board. Run a trace to the CPU and watch the pulse <b>fade and die</b> — that fading is signal integrity, the reason this game exists.</p>
+      <p>Now place <b>retimer chips</b> along the route (every 2 tiles or so). Each one reads the smeared-out signal and retransmits it perfectly clean — health pops back to 100% at the chip.</p>
+      <p class="tip">A retimer can’t resurrect a dead signal. Place it before health falls under 30%.</p>`
+  },
+  {
+    scale: 'board', title: 'Level 3 — Fan out',
+    budget: 9900, tools: ['gpu', 'pswitch', 'trace', 'retimer'],
+    pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'mem', i: 6, j: 3 }, { t: 'mem', i: 6, j: 5 }],
+    preCables: [{ a: 0, b: 1, type: 'trace' }, { a: 0, b: 2, type: 'trace' }],
+    goals: [
+      { text: 'Bring 6 GPUs online', check: s => s.stats.online >= 6 },
+      { text: 'Fan out through a PCIe switch', check: s => s.stats.switchUsed }
+    ],
+    lesson: `<h2>Level 3 — Fan out</h2>
+      <p>Here’s the wall every server designer hits: the CPU has only <b>4 ports</b>, and two are already feeding memory. You need <b>six GPUs</b> online.</p>
+      <p>Enter the <b>PCIe switch</b>: it takes one CPU port and turns it into eight. GPUs plugged into the switch reach the CPU — and the memory behind it — right through it.</p>
+      <p class="tip">Count ports before you wire. One GPU can go straight to the CPU; the rest live behind the switch.</p>`
+  },
+  {
+    scale: 'board', title: 'Level 4 — The memory wall',
+    budget: 1050, tools: ['mem', 'memctl', 'trace', 'retimer'],
+    pre: [
+      { t: 'cpu', i: 7, j: 4 }, { t: 'pswitch', i: 9, j: 4 }, { t: 'nic', i: 6, j: 5 },
+      { t: 'gpu', i: 9, j: 2 }, { t: 'gpu', i: 10, j: 3 }, { t: 'gpu', i: 11, j: 4 },
+      { t: 'gpu', i: 10, j: 5 }, { t: 'gpu', i: 9, j: 6 }, { t: 'gpu', i: 8, j: 3 }
+    ],
+    preCables: [
+      { a: 0, b: 1, type: 'trace' }, { a: 0, b: 2, type: 'trace' },
+      { a: 3, b: 1, type: 'trace' }, { a: 4, b: 1, type: 'trace' }, { a: 5, b: 1, type: 'trace' },
+      { a: 6, b: 1, type: 'trace' }, { a: 7, b: 1, type: 'trace' }, { a: 8, b: 1, type: 'trace' }
+    ],
+    goals: [
+      { text: 'Feed the system 4 DIMMs', check: s => s.stats.memsReach >= 4 },
+      { text: 'Keep all 6 GPUs online', check: s => s.stats.online >= 6 }
+    ],
+    lesson: `<h2>Level 4 — The memory wall</h2>
+      <p>Six GPUs are wired and hungry, but there’s <b>no memory on this board</b> — and almost no ports left: the CPU is down to two, the switch to one.</p>
+      <p>Four DIMMs won’t fit on the ports you have. You need a <b>CXL memory controller</b>: it takes one port and fans out to a whole bank of DIMMs. Memory behind it still counts — GPUs reach it through the CPU or switch.</p>
+      <p class="tip">This is a real product category: when the ports run out but the models keep growing, memory controllers are how servers keep feeding their GPUs.</p>`
+  },
+  {
+    scale: 'board', title: 'Level 5 — AEC or AOC?', powerCapW: 21,
+    budget: 1000, tools: ['nic', 'trace', 'aecb', 'aocb', 'retimer'],
+    pre: [
+      { t: 'cpu', i: 2, j: 4 }, { t: 'mem', i: 1, j: 4 },
+      { t: 'gpu', i: 9, j: 3 }, { t: 'gpu', i: 12, j: 6 }, { t: 'gpu', i: 6, j: 7 }
+    ],
+    preCables: [{ a: 0, b: 1, type: 'trace' }],
+    goals: [
+      { text: 'Bring all 3 remote GPUs online', check: s => s.stats.online >= 3 },
+      { text: 'Wire a NIC to the CPU — the door to the network', check: s => s.stats.nicUp },
+      { text: 'Keep power at or under 21 W', check: s => s.stats.watts <= 21.001 }
+    ],
+    lesson: `<h2>Level 5 — AEC or AOC?</h2>
+      <p>Three GPUs sit on far shelves, and bare traces can’t make the trip. Past the retimer, connectivity gives you two cables:</p>
+      <p><b>AEC</b> — active electrical cable: copper with retimer chips built into each plug. 6% loss per tile, 5 W, $120.<br>
+      <b>AOC</b> — active optical cable: light. 1% loss per tile, reach for days — but 9 W and $300, and lasers fail more than copper.</p>
+      <p>Your 21 W power budget won’t survive all-AOC, and one GPU is too far for an AEC. Match the cable to the distance — that’s the actual job.</p>
+      <p class="tip">Finish by wiring a <b>NIC</b> to the CPU. That little card is where the next level begins.</p>`
+  },
+  {
+    scale: 'rack', title: 'Level 6 — Fill the rack', requireCore: false, powerCapW: 11,
+    budget: 34500, tools: ['server', 'dac1', 'aec1', 'aoc1', 'retimer'],
     pre: [
       { t: 'tor', i: 8, j: 0 },
       { t: 'server', i: 11, j: 3 }, { t: 'server', i: 6, j: 8 }
@@ -256,17 +354,18 @@ const LEVELS = [
       },
       { text: 'Keep link power at or under 11 W', check: s => s.stats.watts <= 11.001 }
     ],
-    lesson: `<h2>Level 2 — Fill the rack</h2>
-      <p>Zoom out: your board is now inside a <b>server</b>, and servers stack in a rack with the <b>ToR (top-of-rack) switch</b> at the top. It lives up there on purpose — most cables stay short and cheap.</p>
-      <p>Six servers need to reach the ToR. Same physics as the board, new toolbox:</p>
+    lesson: `<h2>Level 6 — Fill the rack</h2>
+      <p>Zoom out: the board you built (NIC and all) is now inside a <b>server</b>, and servers stack in a rack with the <b>ToR (top-of-rack) switch</b> up top. It lives there on purpose — most cables stay short and cheap.</p>
+      <p>Six servers need to reach the ToR. Same physics, familiar toolbox:</p>
       <p><b>Copper DAC</b> — passive cable, almost free, 20% loss per tile. Perfect near the top.<br>
-      <b>Retimer</b> — $300 and 3 W buys a mid-run signal cleanup. Right for the middle of the rack.<br>
-      <b>AEC</b> — copper with retimer chips factory-built into each connector shell. The only sane option for the bottom U — it <i>is</i> the retimer trick, productized.</p>
-      <p>Your power cap is <b>11 W</b>. All-AEC won’t fit — match each distance to the cheapest technology that survives it.</p>
-      <p class="tip">Two servers came pre-racked in awkward spots. That’s data center life. Place your four wherever you like — closer to the ToR is cheaper.</p>`
+      <b>Retimer</b> — $300 and 3 W buys a mid-run signal cleanup.<br>
+      <b>AEC</b> — the retimer trick, productized into the cable.<br>
+      <b>AOC</b> — optical reach at 9 W and $1,200. Tempting… check your power cap first.</p>
+      <p>Your power cap is <b>11 W</b>. All-AEC won’t fit and AOC is a trap here — match each distance to the cheapest technology that survives it.</p>
+      <p class="tip">Two servers came pre-racked in awkward spots. That’s data center life.</p>`
   },
   {
-    scale: 'row', title: 'Level 3 — Connect the row', requireCore: true, oversub: 2, powerCapW: 30,
+    scale: 'row', title: 'Level 7 — Connect the row', requireCore: true, oversub: 2, powerCapW: 30,
     budget: 13000, tools: ['leaf', 'dac2', 'aec2', 'opt', 'retimer'],
     pre: [
       { t: 'spine', i: 8, j: 0 },
@@ -279,7 +378,7 @@ const LEVELS = [
       { text: 'Use at least 2 leaf switches', check: s => s.stats.leavesUsed >= 2 },
       { text: 'Keep link power at or under 30 W', check: s => s.stats.watts <= 30.001 }
     ],
-    lesson: `<h2>Level 3 — Connect the row</h2>
+    lesson: `<h2>Level 7 — Connect the row</h2>
       <p>Final zoom: racks (each one a whole level 2) stand in a <b>row</b>, and the row needs a network. This is where data centers earn the name <b>fabric</b>:</p>
       <p><b>Leaf switches</b> — you place these among the racks; every rack uplinks to a leaf.<br>
       <b>Spine switch</b> — already installed at the top. Each leaf needs <b>1 healthy spine uplink per 2 racks</b> (2:1 oversubscription — a real-world ratio).<br>
@@ -294,7 +393,7 @@ const LEVELS = [
     goals: [{ text: 'Build the biggest, healthiest floor you can', check: () => false }],
     lesson: `<h2>Welcome — this is your data center</h2>
       <p>Free build, deep budget. Place <b>rows of racks</b>, <b>spine pods</b>, and the <b>DCI gateway</b> that links the building to the world, then wire them with aqua <b>multimode</b> fiber (inside the hall) and yellow <b>single-mode</b> (the long hauls). The HUD tracks throughput and link power.</p>
-      <p>Want to know how all of it actually works, from a GPU’s pins on up? Hit the green <b>▶ Start campaign</b> button — three levels: build a server, fill a rack, connect the row.</p>
+      <p>Want to know how all of it actually works, from a GPU’s pins on up? Hit the green <b>▶ Start campaign</b> button — seven levels, starting where it all starts: <b>PCIe retimers inside the server</b>, then switches, memory controllers, AEC vs AOC cables, and on up to the rack and the row.</p>
       <p class="tip">Pro move: connect every row to <i>two</i> spine pods (dual-homing), then delete one pod and watch what survives. That’s why redundancy is worth the money.</p>`
   }
 ];
@@ -364,29 +463,68 @@ function recompute() {
   const linksOf = e => healthy.filter(c => c.a === e.id || c.b === e.id);
   const other = (c, e) => S.ents.find(x => x.id === (c.a === e.id ? c.b : c.a));
 
-  const hubs = S.ents.filter(e => CAT[e.type].role === 'hub');
-  const hubOk = {};
-  hubs.forEach(h => {
-    const nodes = linksOf(h).filter(c => CAT[other(c, h).type].role === 'node').length;
-    const cores = linksOf(h).filter(c => CAT[other(c, h).type].role === 'core').length;
-    hubOk[h.id] = !S.level.requireCore || nodes === 0 ||
-      cores >= Math.max(1, Math.ceil(nodes / (S.level.oversub || 2)));
-  });
-
   let online = 0, tput = 0; const usedHubs = new Set();
-  S.ents.filter(e => CAT[e.type].role === 'node').forEach(n => {
-    const okHubs = new Set();
-    for (const c of linksOf(n)) {
-      const o = other(c, n);
-      if (o && CAT[o.type].role === 'hub' && hubOk[o.id]) okHubs.add(o.id);
+  let memsReach = 0, switchUsed = false, nicUp = false;
+
+  if (S.scale === 'board') {
+    /* graph reachability: a GPU is online when it can reach a CPU AND memory */
+    const adj = new Map();
+    S.ents.forEach(e => adj.set(e.id, []));
+    healthy.forEach(c => {
+      if (adj.has(c.a) && adj.has(c.b)) { adj.get(c.a).push(c.b); adj.get(c.b).push(c.a); }
+    });
+    const reachTypes = start => {
+      const seen = new Set([start.id]), q = [start.id], types = new Set();
+      while (q.length) {
+        const id = q.pop();
+        const e = S.ents.find(x => x.id === id);
+        if (e && e.id !== start.id) types.add(e.type);
+        (adj.get(id) || []).forEach(n2 => { if (!seen.has(n2)) { seen.add(n2); q.push(n2); } });
+      }
+      return { types, seen };
+    };
+    S.ents.forEach(e => {
+      if (e.type === 'gpu') {
+        const r = reachTypes(e);
+        e.online = r.types.has('cpu') && r.types.has('mem');
+        if (e.online) { online++; tput += CAT.gpu.tput; }
+      } else e.online = false;
+    });
+    const cpu = S.ents.find(e => e.type === 'cpu');
+    if (cpu) {
+      const r = reachTypes(cpu);
+      memsReach = S.ents.filter(e => e.type === 'mem' && r.seen.has(e.id)).length;
+      nicUp = S.ents.some(e => e.type === 'nic' && r.seen.has(e.id));
     }
-    n.online = okHubs.size >= (S.level.dualHome ? 2 : 1);
-    if (n.online) { online++; tput += CAT[n.type].tput; okHubs.forEach(h => usedHubs.add(h)); }
-  });
+    switchUsed = S.ents.some(p => p.type === 'pswitch' &&
+      reachTypes(p).types.has('cpu') &&
+      healthy.some(c => (c.a === p.id || c.b === p.id) && other(c, p) && other(c, p).type === 'gpu'));
+  } else {
+    const hubs = S.ents.filter(e => CAT[e.type].role === 'hub');
+    const hubOk = {};
+    hubs.forEach(h => {
+      const nodes = linksOf(h).filter(c => CAT[other(c, h).type].role === 'node').length;
+      const cores = linksOf(h).filter(c => CAT[other(c, h).type].role === 'core').length;
+      hubOk[h.id] = !S.level.requireCore || nodes === 0 ||
+        cores >= Math.max(1, Math.ceil(nodes / (S.level.oversub || 2)));
+    });
+    S.ents.filter(e => CAT[e.type].role === 'node').forEach(n => {
+      const okHubs = new Set();
+      for (const c of linksOf(n)) {
+        const o = other(c, n);
+        if (o && CAT[o.type].role === 'hub' && hubOk[o.id]) okHubs.add(o.id);
+      }
+      n.online = okHubs.size >= (S.level.dualHome ? 2 : 1);
+      if (n.online) { online++; tput += CAT[n.type].tput; okHubs.forEach(h => usedHubs.add(h)); }
+    });
+  }
 
   const rw = RET_STATS[S.scale].watts;
   const watts = S.cables.reduce((w, c) => w + CAB[c.type].watts, 0) + S.retimers.length * rw;
-  S.stats = { online, tput: Math.round(tput * 10) / 10, watts: Math.round(watts * 10) / 10, leavesUsed: usedHubs.size };
+  S.stats = {
+    online, tput: Math.round(tput * 10) / 10, watts: Math.round(watts * 10) / 10,
+    leavesUsed: usedHubs.size, memsReach, switchUsed, nicUp
+  };
 
   if (!S.done && !S.level.sandbox && S.level.goals.every(g => g.check(S))) {
     S.done = true;
@@ -419,15 +557,28 @@ function tryPlaceRet(i, j) {
   recompute();
 }
 function portCount(e) { return S.cables.filter(c => c.a === e.id || c.b === e.id).length; }
+const ALLOWED_BOARD = {
+  gpu: ['cpu', 'pswitch'],
+  mem: ['cpu', 'pswitch', 'memctl'],
+  memctl: ['cpu', 'pswitch'],
+  nic: ['cpu', 'pswitch', 'nic'],
+  cpu: ['gpu', 'mem', 'memctl', 'nic', 'pswitch'],
+  pswitch: ['gpu', 'mem', 'memctl', 'cpu', 'nic']
+};
 function tryCable(type, A, B) {
   if (A.id === B.id) return say('Connect two different devices.');
-  const m = SCALES[S.scale].msg;
-  const pair = [CAT[A.type].role, CAT[B.type].role].sort().join('-');
-  if (pair === 'hub-node' || pair === 'core-hub') { /* allowed */ }
-  else if (pair === 'node-node') return say(m.nn);
-  else if (pair === 'core-node') return say(m.nc || m.nn);
-  else if (pair === 'core-core') return say(m.cc || 'Those two don’t connect.');
-  else return say(m.hh || 'Those two don’t connect.');
+  if (S.scale === 'board') {
+    if (!(ALLOWED_BOARD[A.type] || []).includes(B.type))
+      return say(`${CAT[A.type].name} plugs into: ${(ALLOWED_BOARD[A.type] || []).map(k => CAT[k].name).join(', ')}.`);
+  } else {
+    const m = SCALES[S.scale].msg;
+    const pair = [CAT[A.type].role, CAT[B.type].role].sort().join('-');
+    if (pair === 'hub-node' || pair === 'core-hub') { /* allowed */ }
+    else if (pair === 'node-node') return say(m.nn);
+    else if (pair === 'core-node') return say(m.nc || m.nn);
+    else if (pair === 'core-core') return say(m.cc || 'Those two don’t connect.');
+    else return say(m.hh || 'Those two don’t connect.');
+  }
   if (portCount(A) >= CAT[A.type].ports) return say(`${CAT[A.type].name} is out of ports.`);
   if (portCount(B) >= CAT[B.type].ports) return say(`${CAT[B.type].name} is out of ports.`);
   const spec = CAB[type];
@@ -1066,7 +1217,7 @@ function showInspector(th) {
       const hub = SCALES[S.scale].hubName;
       status = th.ent.online
         ? `<p class="ok">Status: online — pushing ${spec.tput} Tb/s.</p>`
-        : `<p class="bad">Status: offline — needs ${S.level.dualHome ? `healthy links to two different ${hub}s` : `a healthy link to the ${hub}`}${S.level.requireCore ? ' (which needs its own upstream links)' : ''}.</p>`;
+        : `<p class="bad">Status: offline — needs ${S.scale === 'board' ? 'a healthy path to a CPU <i>and</i> to memory (direct or through a PCIe switch)' : S.level.dualHome ? `healthy links to two different ${hub}s` : `a healthy link to the ${hub}`}${S.scale !== 'board' && S.level.requireCore ? ' (which needs its own upstream links)' : ''}.</p>`;
     }
     $('infoBody').innerHTML = `<h3>${spec.name}</h3><p class="tagline">${spec.tag}</p>${status}<p>${spec.desc}</p><p class="real"><b>Real world:</b> ${spec.real}</p>`;
   } else if (th.kind === 'cable') {

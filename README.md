@@ -8,14 +8,18 @@ The original **Data Center Builder** (baseboards, CPU/GPU/memory wiring, economy
 
 ## What it teaches
 
-Three detailed levels, one per scale — the same signal physics applies at every one:
+The campaign starts where connectivity starts — **PCIe inside the server** — then zooms out. A GPU is online only when it can reach a CPU *and* memory through healthy links (the CPU has just 4 ports, so switches matter):
 
 | Level | Scale | What you build and learn |
 |---|---|---|
-| 1 — Build a server | Inside the server | CPU, DIMMs (memory channels), 4 GPUs on PCIe traces; signal integrity and **retimer chips** rescue a far riser GPU |
-| 2 — Fill the rack | The rack | 6 servers up to the ToR switch under a power cap: DAC for short hops, loose retimers mid-rack, an AEC (retimers built into the cable) for the bottom U |
-| 3 — Connect the row | The row | Place leaf switches, uplink 5 racks, reach the spine at 2:1 oversubscription; DAC vs AEC vs optical under a 30 W power budget |
-| Sandbox | The data center | The whole floor: rows, spine pods, DCI gateway, multimode vs single-mode fiber, dual-homing experiments |
+| 1 — First light | Inside the server | GPU + CPU + DIMM over PCIe traces; the reach-CPU-and-memory rule |
+| 2 — The long trace | Inside the server | Signal integrity: a far riser GPU dies on bare copper; **retimer chips** rescue it |
+| 3 — Fan out | Inside the server | The CPU runs out of ports; a **PCIe switch** turns one port into eight |
+| 4 — The memory wall | Inside the server | No ports left for DIMMs; a **CXL memory controller** fans out a memory bank |
+| 5 — AEC or AOC? | Inside the server | Cabled PCIe: **AEC** (retimed copper) vs **AOC** (optical) under a power cap, plus a NIC to the outside |
+| 6 — Fill the rack | The rack | 6 servers to the ToR under 11 W: DAC, loose retimers, AEC — with AOC as the tempting trap |
+| 7 — Connect the row | The row | Leaf switches, 2:1 oversubscribed spine uplinks, DAC/AEC/optical under 30 W |
+| Sandbox | The data center | The whole floor: rows, spine pods, DCI gateway, multimode vs single-mode fiber |
 
 The core teaching visual: data pulses travel along every cable and **visibly fade** as copper attenuates them. Below 30% health the link dies — unless a retimer chip on the route regenerates the signal back to 100%. Click anything for a plain-English explanation with a real-world note.
 
