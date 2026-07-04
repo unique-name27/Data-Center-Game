@@ -1018,9 +1018,32 @@ cvs.addEventListener('pointerdown', ev => {
   S.selected = th;
   showInspector(th);
 });
+const NUDGE = {
+  arrowup: [0, -1], arrowdown: [0, 1], arrowleft: [-1, 0], arrowright: [1, 0],
+  w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
+};
 window.addEventListener('keydown', ev => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (ev.key === 'Escape') { drag = null; S.pendA = null; setTool('select'); }
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selected) removeThing(S.selected);
+
+  const nudge = NUDGE[ev.key.toLowerCase()];
+  if (nudge) {
+    let target = (S.selected && S.selected.kind === 'ent') ? S.selected.ent
+      : (hoverTile && entAt(hoverTile.i, hoverTile.j));
+    if (target) {
+      ev.preventDefault();
+      if (target.locked) { say('That one is fixed — it can’t be moved.'); return; }
+      const ni = target.i + nudge[0], nj = target.j + nudge[1];
+      if (ni < 0 || nj < 0 || ni >= GRID_W || nj >= GRID_H) return;
+      moveEnt(target, ni, nj);
+      S.selected = { kind: 'ent', ent: target };
+      showInspector(S.selected);
+      return;
+    }
+  }
+
   const order = ['select', ...S.level.tools, 'delete'];
   const n = parseInt(ev.key, 10);
   if (n >= 1 && n <= order.length) setTool(order[n - 1]);
