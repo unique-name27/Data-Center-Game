@@ -20,7 +20,7 @@ const FALLBACK = {
   gpu: '#5a6acf', cpu: '#3b5dc9', mem: '#f5c542', server: '#36aebf',
   tor: '#2f7a5c', leaf: '#2f7a5c', spine: '#8f6ac2', rk: '#566c86',
   rw: '#c8823f', spine2: '#8f6ac2', dci: '#4ad2e0',
-  pswitch: '#2f7a5c', memctl: '#b48ae8', nic: '#e8720c'
+  pswitch: '#2f7a5c', memctl: '#b48ae8', nic: '#e8720c', uplink: '#566c86'
 };
 
 /* ---------------- sprites (original art) ---------------- */
@@ -35,6 +35,7 @@ const SPR = {
   pswitch: { src: 'assets/switch.png', size: 56 },
   memctl: { src: 'assets/memoryExpander.png', size: 56 },
   nic: { src: 'assets/networking.png', size: 54 },
+  uplink: { src: 'assets/props4.png', rect: [1530, 1416, 59, 136], size: 60 },
   rk: { src: 'assets/props4.png', rect: [1530, 1416, 59, 136], size: 62 },
   rw: { src: 'assets/props4.png', rect: [1462, 3003, 196, 101], size: 62 },
   spine2: { src: 'assets/networking.png', size: 62 },
@@ -126,8 +127,14 @@ const CAT = {
   nic: {
     scale: 'board', role: 'util', name: 'NIC (network card)', cost: 350, ports: 2,
     tag: 'The server’s door to the network',
-    desc: 'Everything you build in this box eventually talks to other servers through the NIC. Wire it to the CPU or a switch — at the next scale up, this is the port the rack cables plug into.',
+    desc: 'Everything you build in this box talks to other servers through the NIC. Wire it inward to the CPU or a switch, then run an external link out to the rack uplink — that cable is how this whole server joins the network.',
     real: 'Modern AI servers carry multiple 400–800G NICs — some designs give every GPU its own.'
+  },
+  uplink: {
+    scale: 'board', role: 'external', name: 'Rack uplink (ToR)', cost: 0, ports: 4,
+    tag: 'The cable out of the server',
+    desc: 'This is the top-of-rack switch, one shelf up, seen from inside the server. Run an external link from your NIC to here and the server is on the network — at the next scale up, this is the cable that plugs into the rack.',
+    real: 'Every server’s NIC cables out to the ToR switch: that link is the boundary between “inside the box” and “the data center”.'
   },
   server: {
     scale: 'rack', role: 'node', name: 'GPU server', cost: 8000, ports: 1, tput: 0.8,
@@ -260,7 +267,7 @@ const RET = {
 const LEVELS = [
   {
     scale: 'board', title: 'Lesson 1 — Inside the server',
-    tools: ['gpu', 'mem', 'trace', 'retimer'],
+    tools: ['gpu', 'cpu', 'mem', 'trace', 'retimer'],
     pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
     goals: [
       { text: 'Attach a DIMM to the CPU', check: s => s.stats.memsReach >= 1 },
@@ -279,25 +286,25 @@ const LEVELS = [
   },
   {
     scale: 'board', title: 'Lesson 2 — Build the full server',
-    tools: ['gpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
-    pre: [{ t: 'cpu', i: 7, j: 4 }],
+    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
+    pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'uplink', i: 15, j: 0 }],
     goals: [
       { text: 'Bring 6 GPUs online', check: s => s.stats.online >= 6 },
       { text: 'Fan out through a PCIe switch', check: s => s.stats.switchUsed },
       { text: 'Feed the board memory through a CXL controller', check: s => s.stats.memctlUsed },
-      { text: 'Wire a NIC — the server’s door to the network', check: s => s.stats.nicUp }
+      { text: 'Wire a NIC out to the rack uplink', check: s => s.stats.nicUp }
     ],
     lesson: `<h2>Lesson 2 — Build the full server</h2>
       <p>Now build a real GPU server. Six GPUs need to come online — but the <b>CPU has only 4 ports</b>, so you can’t just wire everything to it. You’ll use every connectivity part:</p>
       <p><b>PCIe switch</b> — turns one CPU port into eight. Put your GPUs behind it.<br>
       <b>CXL memory controller</b> — fans one port out to a whole bank of DIMMs, so the memory keeps up with the GPUs.<br>
-      <b>NIC</b> — the network card; the server’s door to the outside world.<br>
-      <b>Cables</b> — for GPUs on far shelves, reach for an <b>AEC</b> (retimed copper) or an <b>AOC</b> (optical, longest reach). Bare traces still need <b>retimers</b> on long runs.</p>
-      <p class="tip">A GPU is online only when it can reach a CPU <i>and</i> memory — through the switch counts. Build the graph, then wire the NIC to finish.</p>`
+      <b>NIC</b> — the network card. Wire it inward to the CPU or a switch, then run an <b>external link</b> out to the <b>rack uplink</b> in the corner — that’s the server joining the network.</p>
+      <p><b>Cables</b> — for GPUs on far shelves, reach for an <b>AEC</b> (retimed copper) or an <b>AOC</b> (optical, longest reach). Bare traces still need <b>retimers</b> on long runs.</p>
+      <p class="tip">A GPU is online only when it can reach a CPU <i>and</i> memory — through the switch counts. Need another CPU? You can drop those too.</p>`
   },
   {
     scale: 'board', title: 'Sandbox — Free build', sandbox: true,
-    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
+    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'uplink', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [],
     goals: [{ text: 'Build any server you like', check: () => false }],
     lesson: `<h2>Sandbox — Free build</h2>
@@ -399,12 +406,12 @@ function recompute() {
         if (e.online) { online++; tput += CAT.gpu.tput; }
       } else e.online = false;
     });
-    const cpu = S.ents.find(e => e.type === 'cpu');
-    if (cpu) {
-      const r = reachTypes(cpu);
-      memsReach = S.ents.filter(e => e.type === 'mem' && r.seen.has(e.id)).length;
-      nicUp = S.ents.some(e => e.type === 'nic' && r.seen.has(e.id));
-    }
+    const cpuReach = new Set();
+    S.ents.filter(e => e.type === 'cpu').forEach(cpu => reachTypes(cpu).seen.forEach(id => cpuReach.add(id)));
+    memsReach = S.ents.filter(e => e.type === 'mem' && cpuReach.has(e.id)).length;
+    nicUp = S.ents.some(e => e.type === 'nic' && (() => {
+      const r = reachTypes(e); return r.types.has('cpu') && r.types.has('uplink');
+    })());
     switchUsed = S.ents.some(p => p.type === 'pswitch' &&
       reachTypes(p).types.has('cpu') &&
       healthy.some(c => (c.a === p.id || c.b === p.id) && other(c, p) && other(c, p).type === 'gpu'));
@@ -467,7 +474,8 @@ const ALLOWED_BOARD = {
   gpu: ['cpu', 'pswitch'],
   mem: ['cpu', 'pswitch', 'memctl'],
   memctl: ['cpu', 'pswitch'],
-  nic: ['cpu', 'pswitch', 'nic'],
+  nic: ['cpu', 'pswitch', 'nic', 'uplink'],
+  uplink: ['nic'],
   cpu: ['gpu', 'mem', 'memctl', 'nic', 'pswitch'],
   pswitch: ['gpu', 'mem', 'memctl', 'cpu', 'nic']
 };
@@ -660,6 +668,14 @@ function drawEnt(e, t) {
     else if (connected) col = (Math.sin(t * 8) > -0.4) ? PAL.red : '#7a2525';
     R(x + T - 14, y + 6, 7, 7, PAL.ink);
     R(x + T - 13, y + 7, 5, 5, col);
+  } else if (CAT[e.type].role === 'external') {
+    const linked = S.cables.some(c => (c.a === e.id || c.b === e.id) && c.ok);
+    ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = linked ? PAL.greenHi : PAL.amber;
+    ctx.fillText('↑ TO RACK', x + T / 2, Math.max(OY + 9, y - 3));
+    ctx.textAlign = 'left';
+    R(x + T - 14, y + 6, 7, 7, PAL.ink);
+    R(x + T - 13, y + 7, 5, 5, linked ? PAL.greenHi : '#7a6a25');
   } else {
     R(x + T - 13, y + 7, 5, 5, (Math.sin(t * 4 + e.id) > -0.3) ? PAL.greenHi : '#1d6a3a');
   }
