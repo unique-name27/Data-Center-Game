@@ -54,6 +54,18 @@ const CAT = {
     tag: 'The cable out of the server',
     desc: 'This is the top-of-rack switch, one shelf up, seen from inside the server. Run an external link from your NIC to here and the server is on the network.',
     real: 'Every server’s NIC cables out to the ToR switch: that link is the boundary between “inside the box” and “the data center”.'
+  },
+  srv: {
+    role: 'inode', name: 'Server island', ports: 2, tput: 6.4,
+    tag: 'A whole server you built, on its own island',
+    desc: 'Each island is one of the GPU servers you assembled — CPU, GPUs, memory and NIC, boxed up. It comes online when its NIC has a healthy cable to the core switch island.',
+    real: 'Between servers there is no PCB to etch a trace onto — every link is a real pluggable cable (AEC for short hops, AOC for long ones).'
+  },
+  core: {
+    role: 'ihub', name: 'Core switch island', ports: 8,
+    tag: 'Where every server’s cable lands',
+    desc: 'The rack’s switch, on its own island in the middle. Run a cable from each server island to here to wire the whole rack together — the far islands are too far for copper AEC and need optical AOC.',
+    real: 'This is the top-of-rack / leaf switch every server uplinks to. Distance decides copper vs optics.'
   }
 };
 const CAB = {
@@ -89,7 +101,9 @@ const ALLOWED_BOARD = {
   nic: ['cpu', 'pswitch', 'nic', 'uplink'],
   uplink: ['nic'],
   cpu: ['gpu', 'mem', 'memctl', 'nic', 'pswitch'],
-  pswitch: ['gpu', 'mem', 'memctl', 'cpu', 'nic']
+  pswitch: ['gpu', 'mem', 'memctl', 'cpu', 'nic'],
+  srv: ['core'],
+  core: ['srv']
 };
 
 /* ---------------- levels ---------------- */
@@ -132,13 +146,33 @@ const LEVELS = [
       <p class="tip">A GPU is online only when it can reach a CPU <i>and</i> memory — through the switch counts. Need another CPU? Drop one.</p>`
   },
   {
+    title: 'Lesson 3 — Connect the islands', islands: true,
+    tools: ['aecb', 'aocb'],
+    pre: [
+      { t: 'core', i: 10, j: 4 },
+      { t: 'srv', i: 14, j: 1 }, { t: 'srv', i: 14, j: 7 },
+      { t: 'srv', i: 0, j: 1 }, { t: 'srv', i: 0, j: 7 }
+    ],
+    goals: [
+      { text: 'Connect the 2 near servers to the core (AEC works)', check: s => s.stats.online >= 2 },
+      { text: 'Reach the far islands with AOC — all 4 online', check: s => s.stats.online >= 4 }
+    ],
+    lesson: `<h2>Lesson 3 — Connect the islands</h2>
+      <p>Look around — <b>each little island is a whole server</b> you just built, and the big island in the middle is the rack’s <b>core switch</b>. Now wire them into one rack.</p>
+      <p>Between islands there’s only open water — <b>no board to etch a trace onto</b>. Every link is a real cable:</p>
+      <p><b>AEC</b> — retimed copper. Cheap and cool, but it fades over distance (6% per tile).<br>
+      <b>AOC</b> — optical. Barely fades at all (1% per tile) — the only thing that reaches the far islands.</p>
+      <p>Click a server island, then the core, to lay a cable across the sea. Try AEC on the near ones… then watch it die on the far ones and reach for AOC.</p>
+      <p class="tip">This is the real reason AECs and AOCs exist: the moment you leave the board, copper physics decides how far you can go.</p>`
+  },
+  {
     title: 'Sandbox — Free build', sandbox: true,
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'uplink', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [],
     goals: [{ text: 'Build any server you like', check: () => false }],
     lesson: `<h2>Sandbox — Free build</h2>
       <p>The island is yours. Drop <b>CPUs</b>, hang GPUs and memory off <b>PCIe switches</b> and <b>CXL controllers</b>, run <b>AEC</b> and <b>AOC</b> cables across the board, and watch the data orbs flow.</p>
-      <p>New here? Hit <b>▶ Start lessons</b> for the two-step guided build.</p>
+      <p>New here? Hit <b>▶ Start lessons</b> for the three-step guided build.</p>
       <p class="tip">A GPU sparkles green when it can reach a CPU and memory. Right-drag to orbit, scroll to zoom.</p>`
   }
 ];
@@ -205,6 +239,24 @@ function recompute() {
     return { types, seen };
   };
   let online = 0, tput = 0;
+  if (S.level.islands) {
+    /* island scale: a server island is online when it has a healthy cable to a core */
+    const cores = S.ents.filter(e => e.type === 'core');
+    S.ents.forEach(e => {
+      if (e.type === 'srv') {
+        e.online = healthy.some(c => (c.a === e.id || c.b === e.id) && cores.some(k => k.id === (c.a === e.id ? c.b : c.a)));
+        if (e.online) { online++; tput += CAT.srv.tput; }
+      } else e.online = false;
+    });
+    const watts = S.cables.reduce((w, c) => w + CAB[c.type].watts, 0);
+    S.stats = { online, tput: Math.round(tput * 10) / 10, watts: Math.round(watts * 10) / 10, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false };
+    syncScene();
+    if (!S.done && !S.level.sandbox && S.level.goals.every(g => g.check(S))) {
+      S.done = true; unlockLevel(S.idx + 1); levelComplete();
+    }
+    updateHUD(); updateGoals();
+    return;
+  }
   S.ents.forEach(e => {
     if (e.type === 'gpu') {
       const r = reachTypes(e);
@@ -365,53 +417,34 @@ const tX = i => i - GRID_W / 2 + 0.5;
 const tZ = j => j - GRID_H / 2 + 0.5;
 
 /* ---- island ---- */
-(function buildIsland() {
-  const grassCanvas = document.createElement('canvas');
-  grassCanvas.width = 1024; grassCanvas.height = 576;
-  const g = grassCanvas.getContext('2d');
+/* permanent ocean */
+const ocean = new THREE.Mesh(
+  new THREE.CylinderGeometry(46, 46, 0.4, 48),
+  new THREE.MeshBasicMaterial({ color: 0x8fd9ec })
+);
+ocean.position.y = -1.75;
+scene.add(ocean);
+
+function grassTexture(cols, rows) {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 576;
+  const g = c.getContext('2d');
   g.fillStyle = '#7ecb54'; g.fillRect(0, 0, 1024, 576);
   g.strokeStyle = 'rgba(70,140,50,.5)'; g.lineWidth = 2;
-  for (let i = 0; i <= GRID_W; i++) { g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, 576); g.stroke(); }
-  for (let j = 0; j <= GRID_H; j++) { g.beginPath(); g.moveTo(0, j * 64); g.lineTo(1024, j * 64); g.stroke(); }
+  const cw = 1024 / cols, ch = 576 / rows;
+  for (let i = 0; i <= cols; i++) { g.beginPath(); g.moveTo(i * cw, 0); g.lineTo(i * cw, 576); g.stroke(); }
+  for (let j = 0; j <= rows; j++) { g.beginPath(); g.moveTo(0, j * ch); g.lineTo(1024, j * ch); g.stroke(); }
   for (let k = 0; k < 700; k++) {
     g.fillStyle = k % 2 ? 'rgba(255,255,255,.10)' : 'rgba(60,130,45,.18)';
     g.fillRect(Math.random() * 1024, Math.random() * 576, 3, 3);
   }
-  const grassTex = new THREE.CanvasTexture(grassCanvas);
-  grassTex.colorSpace = THREE.SRGBColorSpace;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
-  const top = new THREE.Mesh(
-    new RoundedBoxGeometry(GRID_W + 1.4, 0.7, GRID_H + 1.4, 4, 0.32),
-    [toon(0xffffff, { map: grassTex })]
-  );
-  top.material = toon(0xffffff, { map: grassTex });
-  top.position.y = -0.35;
-  top.receiveShadow = true;
-  scene.add(top);
-
-  const dirt = new THREE.Mesh(
-    new RoundedBoxGeometry(GRID_W + 1.7, 1.3, GRID_H + 1.7, 4, 0.4),
-    toon(0x9a6a3f)
-  );
-  dirt.position.y = -1.05;
-  scene.add(dirt);
-
-  const ocean = new THREE.Mesh(
-    new THREE.CylinderGeometry(34, 34, 0.4, 48),
-    new THREE.MeshBasicMaterial({ color: 0x8fd9ec })
-  );
-  ocean.position.y = -1.75;
-  scene.add(ocean);
-  const shore = new THREE.Mesh(
-    new THREE.CylinderGeometry(11.5, 11.8, 0.3, 48),
-    new THREE.MeshBasicMaterial({ color: 0xbdeaf6 })
-  );
-  shore.position.y = -1.62;
-  scene.add(shore);
-})();
-
-/* ---- decorations: trees, flowers, rocks, clouds ---- */
-function tree(x, z, s) {
+/* ---- decorations ---- */
+function tree(parent, x, z, s) {
   const gTree = new THREE.Group();
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * s, 0.16 * s, 0.7 * s, 8), toon(0x8a5a33));
   trunk.position.y = 0.35 * s; trunk.castShadow = true;
@@ -421,9 +454,9 @@ function tree(x, z, s) {
   f2.position.set(0.15 * s, 1.3 * s, 0.05 * s); f2.castShadow = true;
   gTree.add(trunk, f1, f2);
   gTree.position.set(x, 0, z);
-  scene.add(gTree);
+  parent.add(gTree);
 }
-function flowerPatch(x, z) {
+function flowerPatch(parent, x, z) {
   const colors = [0xf06ab8, 0xf5c542, 0xffffff, 0xf08a3c];
   for (let k = 0; k < 4; k++) {
     const f = new THREE.Group();
@@ -433,22 +466,55 @@ function flowerPatch(x, z) {
     head.position.y = 0.2;
     f.add(stem, head);
     f.position.set(x + (Math.random() - 0.5) * 0.7, 0, z + (Math.random() - 0.5) * 0.7);
-    scene.add(f);
+    parent.add(f);
   }
 }
-function rock(x, z, s) {
+function rock(parent, x, z, s) {
   const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3 * s, 0), toon(0xb8bfc8));
   r.position.set(x, 0.12 * s, z);
   r.scale.y = 0.7; r.castShadow = true;
-  scene.add(r);
+  parent.add(r);
 }
-tree(-GRID_W / 2 - 0.1, -GRID_H / 2 - 0.15, 1.1);
-tree(GRID_W / 2 + 0.05, GRID_H / 2 + 0.1, 0.9);
-tree(-GRID_W / 2 - 0.2, GRID_H / 2 + 0.2, 0.8);
-flowerPatch(GRID_W / 2 - 0.2, -GRID_H / 2 - 0.3);
-flowerPatch(-GRID_W / 2 + 1.2, GRID_H / 2 + 0.35);
-rock(GRID_W / 2 + 0.4, -GRID_H / 2 + 1.4, 1);
-rock(-GRID_W / 2 + 0.3, -GRID_H / 2 - 0.4, 0.7);
+
+/* ---- world rebuild per level ---- */
+let worldGroup = new THREE.Group();
+scene.add(worldGroup);
+function makeIsland(parent, cx, cz, w, d, cols, rows) {
+  const top = new THREE.Mesh(new RoundedBoxGeometry(w, 0.7, d, 4, 0.3), toon(0xffffff, { map: grassTexture(cols, rows) }));
+  top.position.set(cx, -0.35, cz); top.receiveShadow = true;
+  const dirt = new THREE.Mesh(new RoundedBoxGeometry(w + 0.3, 1.3, d + 0.3, 4, 0.4), toon(0x9a6a3f));
+  dirt.position.set(cx, -1.05, cz);
+  const shore = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(w, d) * 0.62, Math.max(w, d) * 0.66, 0.3, 40),
+    new THREE.MeshBasicMaterial({ color: 0xbdeaf6 }));
+  shore.position.set(cx, -1.62, cz); shore.scale.set(1, 1, d / w);
+  parent.add(shore, dirt, top);
+}
+function buildWorld(level) {
+  scene.remove(worldGroup);
+  worldGroup = new THREE.Group();
+  if (level.islands) {
+    /* one small island per pre-placed device: the islands ARE the servers */
+    level.pre.forEach(p => {
+      const cx = tX(p.i), cz = tZ(p.j);
+      const big = p.t === 'core';
+      const w = big ? 4.2 : 3.4, d = big ? 4.2 : 3.4;
+      makeIsland(worldGroup, cx, cz, w, d, big ? 4 : 3, big ? 4 : 3);
+      tree(worldGroup, cx + w * 0.32, cz - d * 0.32, big ? 0.8 : 0.6);
+      flowerPatch(worldGroup, cx - w * 0.3, cz + d * 0.28);
+      if (!big) rock(worldGroup, cx - w * 0.32, cz - d * 0.3, 0.6);
+    });
+  } else {
+    makeIsland(worldGroup, 0, 0, GRID_W + 1.4, GRID_H + 1.4, GRID_W, GRID_H);
+    tree(worldGroup, -GRID_W / 2 - 0.1, -GRID_H / 2 - 0.15, 1.1);
+    tree(worldGroup, GRID_W / 2 + 0.05, GRID_H / 2 + 0.1, 0.9);
+    tree(worldGroup, -GRID_W / 2 - 0.2, GRID_H / 2 + 0.2, 0.8);
+    flowerPatch(worldGroup, GRID_W / 2 - 0.2, -GRID_H / 2 - 0.3);
+    flowerPatch(worldGroup, -GRID_W / 2 + 1.2, GRID_H / 2 + 0.35);
+    rock(worldGroup, GRID_W / 2 + 0.4, -GRID_H / 2 + 1.4, 1);
+    rock(worldGroup, -GRID_W / 2 + 0.3, -GRID_H / 2 - 0.4, 0.7);
+  }
+  scene.add(worldGroup);
+}
 
 const clouds = [];
 for (let k = 0; k < 4; k++) {
@@ -565,6 +631,41 @@ function buildPiece(type) {
     sign.position.set(-0.75, 0, 0.35);
     sign.rotation.y = 0.35;
     g.add(sign);
+  } else if (type === 'srv') {
+    /* a boxed-up server: little rack tower with slots + a status beacon */
+    const tower = rbox(0.6, 1.0, 0.75, 0x3a4152); tower.position.y = 0.5;
+    g.add(tower);
+    for (let k = 0; k < 5; k++) {
+      const shelf = rbox(0.5, 0.1, 0.6, 0x222833, 0.02);
+      shelf.position.set(0, 0.22 + k * 0.17, 0.09);
+      g.add(shelf);
+      const chip = new THREE.Mesh(new THREE.SphereGeometry(0.028, 6, 6),
+        new THREE.MeshToonMaterial({ color: 0x9fd0ff, gradientMap: gradTex, emissive: 0x3a70b0, emissiveIntensity: 0.8 }));
+      chip.position.set(0.18, 0.22 + k * 0.17, 0.4);
+      g.add(chip);
+    }
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12),
+      new THREE.MeshToonMaterial({ color: 0x8dffb8, gradientMap: gradTex, emissive: 0x2fbf6a, emissiveIntensity: 1.4 }));
+    beacon.position.y = 1.12;
+    g.userData.beacon = beacon;
+    g.add(beacon);
+  } else if (type === 'core') {
+    /* the rack switch island: wide switch with many ports + antenna */
+    const body = rbox(1.3, 0.5, 0.95, 0x2f6f8f); body.position.y = 0.28;
+    g.add(body);
+    const lid = rbox(1.0, 0.12, 0.7, 0x3f92b8, 0.04); lid.position.y = 0.58;
+    g.add(lid);
+    for (let k = 0; k < 8; k++) {
+      const port = rbox(0.11, 0.1, 0.06, 0x14303c, 0.02);
+      port.position.set(-0.5 + k * 0.14, 0.24, 0.5);
+      g.add(port);
+    }
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.7, 6), toon(0xcfd8e0));
+    mast.position.y = 0.95; g.add(mast);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12),
+      new THREE.MeshToonMaterial({ color: 0xffe08a, gradientMap: gradTex, emissive: 0xd9a326, emissiveIntensity: 1.2 }));
+    ball.position.y = 1.35; g.userData.beacon = ball;
+    g.add(ball);
   }
   return g;
 }
@@ -1051,6 +1152,10 @@ function showInspector(th) {
       status = th.ent.online
         ? `<p class="ok">Status: online — pushing ${spec.tput} Tb/s.</p>`
         : `<p class="bad">Status: offline — needs a healthy path to a CPU <i>and</i> to memory (direct or through a PCIe switch).</p>`;
+    } else if (spec.role === 'inode') {
+      status = th.ent.online
+        ? `<p class="ok">Status: online — this server is on the rack, pushing ${spec.tput} Tb/s.</p>`
+        : `<p class="bad">Status: offline — run a healthy AEC or AOC cable from here to the core switch island. If AEC dies over the water, it’s too far — use AOC.</p>`;
     }
     $('infoBody').innerHTML = `<h3>${spec.name}</h3><p class="tagline">${spec.tag}</p>${status}<p>${spec.desc}</p><p class="real"><b>Real world:</b> ${spec.real}</p>`;
   } else if (th.kind === 'cable') {
@@ -1129,6 +1234,7 @@ function startLevel(idx) {
   retMeshes.clear();
   drag = null;
   S = newLevelState(idx);
+  buildWorld(S.level);
   buildToolbar(); buildLevelSelect();
   $('lvlSel').value = idx;
   $('btnNext').hidden = true;
@@ -1189,6 +1295,27 @@ function animate(ts) {
       if (e.online) plate.material.color.setHex(0x6fcf6a);
       else if (connected) plate.material.color.setHex(Math.sin(t * 8) > 0 ? 0xe05555 : 0xa03535);
       else plate.material.color.setHex(0xf08a3c);
+    }
+  });
+
+  /* server-island beacon: green pulse when online, red blink when down */
+  S.ents.forEach(e => {
+    const m = entMeshes.get(e.id);
+    if (!m || e.type !== 'srv') return;
+    const beacon = m.userData.beacon;
+    if (!beacon) return;
+    const connected = S.cables.some(c => c.a === e.id || c.b === e.id);
+    if (e.online) {
+      beacon.material.color.setHex(0x8dffb8); beacon.material.emissive.setHex(0x2fbf6a);
+      beacon.material.emissiveIntensity = 1.1 + Math.sin(t * 4 + e.id) * 0.5;
+      m.position.y = Math.sin(t * 2 + e.id) * 0.03;
+    } else if (connected) {
+      const on = Math.sin(t * 8) > 0;
+      beacon.material.color.setHex(0xe05555); beacon.material.emissive.setHex(on ? 0xa02020 : 0x401010);
+      beacon.material.emissiveIntensity = on ? 1.2 : 0.3;
+    } else {
+      beacon.material.color.setHex(0x9aa4b0); beacon.material.emissive.setHex(0x2a3038);
+      beacon.material.emissiveIntensity = 0.4;
     }
   });
 
