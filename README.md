@@ -4,6 +4,8 @@ A browser game that teaches how data moves inside a data center — and why **co
 
 **Play it: https://unique-name27.github.io/Data-Center-Game/** — or just open `index.html` in any browser. No build step, no dependencies, no server required.
 
+**✨ 3D island edition: https://unique-name27.github.io/Data-Center-Game/3d.html** — the same lessons on a cozy toon-shaded 3D island (Three.js): rounded chunky components, tube cables with glowing data orbs, spinning GPU fans, drifting clouds, and a wooden sign pointing to the rack. Right-drag orbits the camera.
+
 The original **Data Center Builder** (baseboards, CPU/GPU/memory wiring, economy mode) is still playable at [classic.html](https://unique-name27.github.io/Data-Center-Game/classic.html).
 
 ## What it teaches
