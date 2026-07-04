@@ -307,6 +307,7 @@ let toast = { msg: '', until: 0 };
 let lastT = 0, idSeq = 1;
 let FX = [], advanceTimer = 0;
 let drag = null;
+let starLayer = null, SHOOT = [], nextShoot = 2, DPRg = 1;
 
 function newLevelState(idx) {
   const L = LEVELS[idx];
@@ -509,45 +510,76 @@ function ex(e) { return e.px !== undefined ? e.px : gx(e.i); }
 function ey(e) { return e.py !== undefined ? e.py : gy(e.j); }
 function bounce(e, t) { return e.online ? Math.sin(t * 4 + e.id) * 2 : 0; }
 
-/* ---------------- backgrounds ---------------- */
-function drawBoardBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  R(OX - 24, OY - 24, GRID_W * T + 48, GRID_H * T + 48, '#0f2818');
-  outline(OX - 24, OY - 24, GRID_W * T + 48, GRID_H * T + 48, '#1d4030', 3);
-  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
-    R(gx(i) + 1, gy(j) + 1, T - 2, T - 2, (i + j) % 2 ? '#123020' : '#14351f');
-  for (let i = 0; i <= GRID_W; i++) for (let j = 0; j <= GRID_H; j++)
-    R(gx(i) - 2, gy(j) - 2, 4, 4, '#1d4030');
-}
-function drawRackBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  R(OX - 30, OY - 20, GRID_W * T + 60, GRID_H * T + 40, '#171b26');
-  R(OX - 30, OY - 20, 16, GRID_H * T + 40, '#3a4358');
-  R(OX + GRID_W * T + 14, OY - 20, 16, GRID_H * T + 40, '#3a4358');
-  for (let j = 0; j <= GRID_H; j++) {
-    R(OX - 26, OY + j * T - 2, 8, 4, PAL.ink);
-    R(OX + GRID_W * T + 18, OY + j * T - 2, 8, 4, PAL.ink);
+/* ---------------- space background ---------------- */
+const ACCENT = { board: '#38b764', rack: '#5aa7ff', row: '#f5c542', dc: '#b48ae8' };
+function buildStars() {
+  const c = document.createElement('canvas');
+  c.width = CW * DPRg; c.height = CH * DPRg;
+  const g = c.getContext('2d');
+  g.setTransform(DPRg, 0, 0, DPRg, 0, 0);
+  g.fillStyle = '#05060f'; g.fillRect(0, 0, CW, CH);
+  for (let k = 0; k < 260; k++) {
+    const x = hash(k * 3.17) * CW, y = hash(k * 7.71) * CH;
+    const r = hash(k * 13.37);
+    g.globalAlpha = 0.22 + r * 0.6;
+    g.fillStyle = r > 0.93 ? '#ffd9a0' : r > 0.85 ? '#a8c8ff' : '#ffffff';
+    const s = r > 0.78 ? 2 : 1.4;
+    g.fillRect(x, y, s, s);
   }
-  for (let j = 0; j < GRID_H; j++)
-    R(OX - 14, OY + (j + 1) * T - 1, GRID_W * T + 28, 2, '#20263a');
-  R(OX - 30, OY - 20, GRID_W * T + 60, 6, PAL.lite);
+  g.globalAlpha = 1;
+  starLayer = c;
 }
-function drawRowBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
-    R(gx(i), gy(j), T, T, (i + j) % 2 ? '#202430' : '#232838');
-  R(OX, OY - 10, GRID_W * T, 6, PAL.amber);
-  R(OX, OY + GRID_H * T + 4, GRID_W * T, 6, PAL.amber);
+function hash(n) { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); }
+function updateShoot(dt) {
+  nextShoot -= dt;
+  if (nextShoot <= 0) {
+    SHOOT.push({
+      x: Math.random() * CW * 0.8, y: -10 + Math.random() * 120,
+      vx: 380 + Math.random() * 260, vy: 150 + Math.random() * 130, life: 1.1
+    });
+    nextShoot = 2.5 + Math.random() * 4.5;
+  }
+  SHOOT.forEach(s => { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; });
+  SHOOT = SHOOT.filter(s => s.life > 0 && s.x < CW + 60 && s.y < CH + 60);
 }
-function drawDcBg() {
-  R(0, 0, CW, CH, PAL.bg);
-  outline(OX - 22, OY - 22, GRID_W * T + 44, GRID_H * T + 44, '#3a4358', 10);
-  for (let i = 0; i < GRID_W; i++) for (let j = 0; j < GRID_H; j++)
-    R(gx(i), gy(j), T, T, (Math.floor(i / 2) + Math.floor(j / 2)) % 2 ? '#242833' : '#272b38');
-  R(gx(14), gy(0), 2 * T, 2 * T, '#1d3242');
-  outline(gx(14), gy(0), 2 * T, 2 * T, '#2a5a7a', 2);
+function spaceBg(t) {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(starLayer, 0, 0);
+  ctx.restore();
+  for (let k = 0; k < 16; k++) {
+    const x = hash(k * 31.7) * CW, y = hash(k * 17.9) * CH;
+    ctx.globalAlpha = 0.25 + 0.7 * Math.abs(Math.sin(t * 1.4 + k * 2.1));
+    R(x, y, 2, 2, '#ffffff');
+  }
+  ctx.globalAlpha = 1;
+  const ac = ACCENT[S.scale];
+  const gr = ctx.createRadialGradient(CW * 0.78, CH * 0.18, 40, CW * 0.78, CH * 0.18, 500);
+  gr.addColorStop(0, ac + '30'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, CW, CH);
+  const gr2 = ctx.createRadialGradient(CW * 0.14, CH * 0.86, 40, CW * 0.14, CH * 0.86, 440);
+  gr2.addColorStop(0, ac + '22'); gr2.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gr2; ctx.fillRect(0, 0, CW, CH);
+  SHOOT.forEach(s => {
+    const a = Math.max(0, Math.min(1, s.life));
+    ctx.strokeStyle = `rgba(255,255,255,${0.75 * a})`;
+    ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.vx * 0.12, s.y - s.vy * 0.12); ctx.stroke();
+    R(s.x - 1.5, s.y - 1.5, 3, 3, '#ffffff');
+  });
+  ctx.fillStyle = 'rgba(10,14,24,.80)';
+  ctx.fillRect(OX - 14, OY - 14, GRID_W * T + 28, GRID_H * T + 28);
+  outline(OX - 18, OY - 18, GRID_W * T + 36, GRID_H * T + 36, ac + '2a', 6);
+  outline(OX - 15, OY - 15, GRID_W * T + 30, GRID_H * T + 30, ac + '99', 2);
+  ctx.globalAlpha = 0.14;
+  for (let i = 0; i <= GRID_W; i++) R(gx(i), OY, 1, GRID_H * T, ac);
+  for (let j = 0; j <= GRID_H; j++) R(OX, gy(j), GRID_W * T, 1, ac);
+  ctx.globalAlpha = 1;
+  if (S.scale === 'dc') {
+    R(gx(14), gy(0), 2 * T, 2 * T, 'rgba(74,210,224,.12)');
+    outline(gx(14), gy(0), 2 * T, 2 * T, '#4ad2e0', 2);
+  }
 }
-const BG = { board: drawBoardBg, rack: drawRackBg, row: drawRowBg, dc: drawDcBg };
 
 /* ---------------- sprites ---------------- */
 function spriteBox(type) {
@@ -810,7 +842,8 @@ function frame(ts) {
   requestAnimationFrame(frame);
   const t = ts / 1000, dt = Math.max(0.001, Math.min(0.05, t - lastT || 0.016));
   lastT = t;
-  BG[S.scale]();
+  updateShoot(dt);
+  spaceBg(t);
   S.ents.forEach(e => {
     const tx0 = gx(e.i), ty0 = gy(e.j);
     if (drag && drag.lift && e === drag.ent && mouse.inside) {
@@ -1097,9 +1130,11 @@ $('lvlSel').onchange = ev => startLevel(parseInt(ev.target.value, 10));
 /* ---------------- boot ---------------- */
 (function boot() {
   const dpr = window.devicePixelRatio || 1;
+  DPRg = dpr;
   cvs.width = CW * dpr; cvs.height = CH * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
+  buildStars();
   loadSprites(() => { if (S) buildToolbar(); });
   startLevel(LEVELS.length - 1);
   requestAnimationFrame(frame);
