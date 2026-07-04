@@ -101,7 +101,7 @@ const CAT = {
     real: 'A modern PCIe Gen6 x16 link moves ~128 GB/s — about 1 Tb/s — over bare copper traces.'
   },
   cpu: {
-    scale: 'board', role: 'hub', name: 'CPU', cost: 800, ports: 8,
+    scale: 'board', role: 'hub', name: 'CPU', cost: 800, ports: 4,
     tag: 'The root complex — every lane starts here',
     desc: 'On a server board, the CPU is the hub: PCIe lanes fan out from it to GPUs, NICs and drives, and memory channels fan out to DIMMs. A GPU is online only when it has a healthy trace to the CPU and the CPU has memory.',
     real: 'Server CPUs expose 128+ PCIe lanes and a dozen memory channels — all signal-integrity battlegrounds.'
