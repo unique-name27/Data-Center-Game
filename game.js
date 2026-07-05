@@ -116,13 +116,13 @@ const CAT = {
     scale: 'board', role: 'hub', name: 'PCIe switch', cost: 600, ports: 8,
     tag: 'Fan-out for your lanes',
     desc: 'The CPU has only 4 ports here — a PCIe switch turns one of them into eight. GPUs, memory controllers and NICs behind the switch all reach the CPU through it.',
-    real: 'PCIe fabric switches (like Astera Labs’ Scorpio or Broadcom’s PEX) are how one CPU hosts a dozen GPUs.'
+    real: 'PCIe fabric switches are how one CPU can host a dozen GPUs at once.'
   },
   memctl: {
     scale: 'board', role: 'core', name: 'CXL memory controller', cost: 400, ports: 8,
     tag: 'More memory than you have ports',
     desc: 'A memory controller fans one link out to a whole bank of DIMMs. Memory behind it still counts — GPUs reach it through the CPU or a switch.',
-    real: 'CXL memory controllers (like Astera Labs’ Leo) attach terabytes of extra memory over PCIe-style links.'
+    real: 'CXL memory controllers attach terabytes of extra memory over PCIe-style links.'
   },
   nic: {
     scale: 'board', role: 'util', name: 'NIC (network card)', cost: 350, ports: 2,
@@ -215,7 +215,7 @@ const CAB = {
     scale: 'rack', name: 'Active electrical cable (AEC)', cost: 900, watts: 6, loss: 6, color: '#3fc8c8', retime: false,
     tag: 'Copper with retimers built in',
     desc: 'An AEC is a copper cable with a retimer chip inside each connector shell, constantly cleaning the signal — only 6% loss per tile. Compare its price to placing loose retimers along a DAC.',
-    real: 'AECs are one of the fastest-growing connectivity products — built around retimer silicon from companies like Astera Labs, Marvell and Broadcom.'
+    real: 'AECs are one of the fastest-growing connectivity products — each one built around retimer silicon in its connector shells.'
   },
   aoc1: {
     scale: 'rack', name: 'AOC (active optical cable)', cost: 1200, watts: 9, loss: 1.2, color: '#5aa7ff', retime: false,
@@ -260,7 +260,7 @@ const RET = {
   name: 'Retimer chip',
   tag: 'The connectivity chip itself',
   desc: 'A retimer recovers the clock and data from a degraded electrical signal and retransmits it perfectly clean — signal health resets to 100% at the chip. Place it on a copper route BEFORE health falls under 30%, or the data is already unrecoverable.',
-  real: 'Retimers live on motherboards, riser cards, backplanes and inside AECs. This is the chip category companies like Astera Labs built their business on.'
+  real: 'Retimers live on motherboards, riser cards, backplanes and inside AECs — a chip category that has grown into a multi-billion-dollar business alongside AI.'
 };
 
 /* ---------------- levels ---------------- */
@@ -1216,14 +1216,14 @@ $('lvlSel').onchange = ev => startLevel(parseInt(ev.target.value, 10));
 const FACTS = [
   'A PCIe Gen6 <b>x16</b> slot bundles 16 lanes — each lane is one pair of wires. Together they move about 128 GB/s.',
   'The <b>x</b> in “PCIe x16” means sixteen lanes <i>wide</i>. A GPU wants a full x16; an SSD is happy with x4.',
-  'A single NVIDIA H100 <b>GPU</b> reads its onboard memory at over 3 TB/s — like scanning 600 DVDs every second.',
-  'Google’s <b>TPUs</b> (Tensor Processing Units) are custom AI chips; a TPU pod links thousands of them with optical switches.',
-  'One modern switch chip (Broadcom’s Tomahawk 5) moves <b>51.2 terabits per second</b> — through a single piece of silicon.',
+  'A top-end AI <b>GPU</b> reads its onboard memory at over 3 TB/s — like scanning 600 DVDs every second.',
+  '<b>TPUs</b> (Tensor Processing Units) are custom AI accelerator chips; a single pod can link thousands of them with optical switches.',
+  'A modern network switch chip moves <b>51.2 terabits per second</b> — through a single piece of silicon.',
   '<b>Retimers</b> exist because past about a meter at PCIe Gen6 speeds, a copper signal smears too much to read. The retimer rebuilds it.',
   '<b>AECs</b> — copper cables with retimer chips in the plugs — are the fastest-growing cable type in AI data centers.',
   'An <b>AOC</b> turns your data into laser light. Light barely fades, so one optical cable can run 100+ meters.',
   '<b>CXL</b> lets a CPU borrow extra memory over PCIe-style links — for when a server needs more RAM than it has slots.',
-  '<b>NVLink</b> is NVIDIA’s private GPU-to-GPU highway: up to 1.8 TB/s between chips, far faster than PCIe.',
+  'Dedicated <b>GPU-to-GPU links</b> form a private highway between chips — up to 1.8 TB/s each, far faster than PCIe.',
   'Optical transceivers can burn more power than the switch chip itself — which is why engineers use copper wherever they can.',
   'A rack of eight top-end <b>GPUs</b> can draw over 10 kilowatts — as much as several homes at once.',
   'A <b>leaf-spine</b> network lets any server reach any other in just 3 hops, no matter how big the building.',
