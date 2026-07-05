@@ -1034,28 +1034,83 @@ function syncScene() {
   });
   rebuildCables();
 }
-function cableCurveFor(c) {
-  const twins = S.cables.filter(x => (x.a === c.a && x.b === c.b) || (x.a === c.b && x.b === c.a));
-  const twinOff = twins.length > 1 ? (twins.indexOf(c) - (twins.length - 1) / 2) * 0.16 : 0;
-  /* a small deterministic per-cable offset + height so wires that share tiles
-     fan out into their own lane instead of stacking on top of each other */
-  const lane = twinOff + (((c.id * 29) % 9) - 4) * 0.058;
-  const hJit = 0.09 + ((c.id * 17) % 5) * 0.014;
-  const pts = c.path.map((p, k) => {
-    const prev = c.path[k - 1], next = c.path[k + 1];
-    const horiz = (prev && prev.j === p.j) || (next && next.j === p.j);
-    return new THREE.Vector3(
-      tX(p.i) + (horiz ? 0 : lane),
-      hJit + (k > 0 && k < c.path.length - 1 ? 0.03 : 0),
-      tZ(p.j) + (horiz ? lane : 0)
-    );
+/* ---- channel router: wires run along the gridlines between tiles, each in its
+   own lane so they never overlap, auto-routed L-shapes crossing under devices. ---- */
+let cableRoutes = new Map();
+function nodeX(gi) { return gi - GRID_W / 2; }        // world x of vertical gridline gi (0..GRID_W)
+function nodeZ(gj) { return gj - GRID_H / 2; }        // world z of horizontal gridline gj (0..GRID_H)
+function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.12; }
+function devCorners(e) { const s = esize(e.type); return [[e.i, e.j], [e.i + s[0], e.j], [e.i, e.j + s[1]], [e.i + s[0], e.j + s[1]]]; }
+function pickNode(dev, other) {
+  const oc = entCenter(other); let best = [dev.i, dev.j], bd = 1e9;
+  devCorners(dev).forEach(([gi, gj]) => { const dx = nodeX(gi) - oc.x, dz = nodeZ(gj) - oc.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = [gi, gj]; } });
+  return { gi: best[0], gj: best[1] };
+}
+function routeCables() {
+  cableRoutes = new Map();
+  const horiz = {}, vert = {}, meta = {};
+  S.cables.forEach(c => {
+    const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
+    if (!A || !B) return;
+    const na = pickNode(A, B), nb = pickNode(B, A);
+    meta[c.id] = { A, B, na, nb };
+    (horiz[na.gj] = horiz[na.gj] || []).push({ id: c.id, a: Math.min(na.gi, nb.gi), b: Math.max(na.gi, nb.gi) });
+    (vert[nb.gi] = vert[nb.gi] || []).push({ id: c.id, a: Math.min(na.gj, nb.gj), b: Math.max(na.gj, nb.gj) });
   });
-  return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.12);
+  const laneH = {}, laneV = {};
+  const alloc = (groups, out) => {
+    Object.keys(groups).forEach(key => {
+      const lanes = [];
+      groups[key].forEach(it => {
+        let k = 0;
+        for (; ; k++) { const occ = lanes[k] || (lanes[k] = []); if (!occ.some(r => it.a < r[1] && it.b > r[0])) { occ.push([it.a, it.b]); break; } }
+        out[it.id] = k;
+      });
+    });
+  };
+  alloc(horiz, laneH); alloc(vert, laneV);
+  S.cables.forEach(c => {
+    const m = meta[c.id]; if (!m) return;
+    const offH = laneShift(laneH[c.id] || 0), offV = laneShift(laneV[c.id] || 0);
+    const y = 0.05 + ((c.id * 13) % 4) * 0.012;
+    const zLine = nodeZ(m.na.gj) + offH, xLine = nodeX(m.nb.gi) + offV;
+    const A = entCenter(m.A), B = entCenter(m.B);
+    const raw = [
+      new THREE.Vector3(A.x, y, A.z),
+      new THREE.Vector3(nodeX(m.na.gi), y, zLine),
+      new THREE.Vector3(xLine, y, zLine),
+      new THREE.Vector3(xLine, y, nodeZ(m.nb.gj)),
+      new THREE.Vector3(B.x, y, B.z)
+    ];
+    const pts = raw.filter((p, k) => k === 0 || p.distanceToSquared(raw[k - 1]) > 0.0004);
+    if (pts.length < 2) pts.push(new THREE.Vector3(B.x + 0.01, y, B.z));
+    cableRoutes.set(c.id, pts);
+  });
+}
+function cableCurveFor(c) {
+  const pts = cableRoutes.get(c.id);
+  if (!pts) return new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(0.1, 0.05, 0)]);
+  return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
+}
+function positionRetimers() {
+  S.retimers.forEach(r => {
+    const mesh = retMeshes.get(r.i + ',' + r.j); if (!mesh) return;
+    const cab = S.cables.find(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j));
+    const pts = cab && cableRoutes.get(cab.id);
+    if (pts) {
+      const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
+      const tx = tX(r.i), tz = tZ(r.j); let best = null, bd = 1e9, tan = null;
+      for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
+      mesh.position.set(best.x, 0.05, best.z);
+      mesh.rotation.y = Math.atan2(tan.x, tan.z);
+    } else { mesh.position.set(tX(r.i), 0.05, tZ(r.j)); mesh.rotation.y = 0; }
+  });
 }
 function rebuildCables() {
   scene.remove(cableGroup);
   cableGroup = new THREE.Group();
   cableCurves.clear();
+  routeCables();
   S.cables.forEach(c => {
     if (drag && drag.lift && (c.a === drag.ent.id || c.b === drag.ent.id)) return;
     const curve = cableCurveFor(c);
@@ -1102,6 +1157,7 @@ function rebuildCables() {
     }
   });
   scene.add(cableGroup);
+  positionRetimers();
 }
 
 /* pulses */
@@ -1823,5 +1879,6 @@ window.G3D = {
   startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
   setSpaceMode, get spaceMode() { return spaceMode; },
   recompute, dispatchEngineer, updateSurvival, get engineers() { return engineers; },
+  get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
