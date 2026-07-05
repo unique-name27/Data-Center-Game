@@ -110,6 +110,14 @@ main { flex: 1; display: flex; min-height: 0; }
 #infoBody .ok { color: var(--green); }
 #infoBody .bad { color: var(--red); }
 
+#factBox {
+  background: var(--panel2); border: 1px solid var(--line);
+  border-left: 3px solid var(--green); border-radius: 0 8px 8px 0;
+  padding: 10px 12px; font-size: 13px; color: var(--dim);
+  line-height: 1.6; min-height: 66px; transition: opacity .35s ease;
+}
+#factBox b { color: var(--green); font-weight: 600; }
+
 #hint {
   padding: 6px 14px; font-size: 12px; color: var(--dim);
   background: var(--panel); border-top: 1px solid var(--line);

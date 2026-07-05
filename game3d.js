@@ -1370,9 +1370,45 @@ function animate(ts) {
   renderer.render(scene, camera);
 }
 
+/* ---------------- fun facts ---------------- */
+const FACTS = [
+  'A PCIe Gen6 <b>x16</b> slot bundles 16 lanes — each lane is one pair of wires. Together they move about 128 GB/s.',
+  'The <b>x</b> in “PCIe x16” means sixteen lanes <i>wide</i>. A GPU wants a full x16; an SSD is happy with x4.',
+  'A single NVIDIA H100 <b>GPU</b> reads its onboard memory at over 3 TB/s — like scanning 600 DVDs every second.',
+  'Google’s <b>TPUs</b> (Tensor Processing Units) are custom AI chips; a TPU pod links thousands of them with optical switches.',
+  'One modern switch chip (Broadcom’s Tomahawk 5) moves <b>51.2 terabits per second</b> — through a single piece of silicon.',
+  '<b>Retimers</b> exist because past about a meter at PCIe Gen6 speeds, a copper signal smears too much to read. The retimer rebuilds it.',
+  '<b>AECs</b> — copper cables with retimer chips in the plugs — are the fastest-growing cable type in AI data centers.',
+  'An <b>AOC</b> turns your data into laser light. Light barely fades, so one optical cable can run 100+ meters.',
+  '<b>CXL</b> lets a CPU borrow extra memory over PCIe-style links — for when a server needs more RAM than it has slots.',
+  '<b>NVLink</b> is NVIDIA’s private GPU-to-GPU highway: up to 1.8 TB/s between chips, far faster than PCIe.',
+  'Optical transceivers can burn more power than the switch chip itself — which is why engineers use copper wherever they can.',
+  'A rack of eight top-end <b>GPUs</b> can draw over 10 kilowatts — as much as several homes at once.',
+  'A <b>leaf-spine</b> network lets any server reach any other in just 3 hops, no matter how big the building.',
+  '<b>HBM</b> (High Bandwidth Memory) stacks DRAM chips vertically right beside the GPU for enormous bandwidth.',
+  'PCIe roughly <b>doubles</b> its speed every 3 years: Gen3 → Gen4 → Gen5 → Gen6, each twice the last.',
+  'Signal-integrity engineers read <b>“eye diagrams”</b> — the more open the “eye”, the healthier the link.',
+  '<b>800G</b> is today’s top networking speed per port: 800 gigabits every second down a single cable.',
+  'The <b>retimer</b> market barely existed a decade ago — AI’s hunger for bandwidth turned it into a multi-billion-dollar business.',
+  'A hyperscale data center can hold <b>hundreds of thousands</b> of GPUs, all needing to talk to each other.',
+  'Every <b>port</b> is a budget: a CPU has only so many lanes to hand out — which is exactly why PCIe switches (fan-out) matter.'
+];
+let factIdx = 0;
+for (let i = FACTS.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [FACTS[i], FACTS[j]] = [FACTS[j], FACTS[i]]; }
+function showFact(immediate) {
+  const el = $('factBox');
+  if (!el) return;
+  const set = () => { el.innerHTML = FACTS[factIdx]; el.style.opacity = '1'; factIdx = (factIdx + 1) % FACTS.length; };
+  if (immediate) { set(); return; }
+  el.style.opacity = '0';
+  setTimeout(set, 350);
+}
+
 /* ---------------- boot ---------------- */
 startLevel(0);
 resize();
+showFact(true);
+setInterval(() => showFact(false), 13000);
 requestAnimationFrame(animate);
 
 /* testing hooks */
