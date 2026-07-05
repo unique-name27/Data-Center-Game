@@ -206,8 +206,9 @@ function newLevelState(idx) {
   L.pre.forEach(p => s.ents.push({ id: idSeq++, type: p.t, i: p.i, j: p.j, locked: true }));
   return s;
 }
-/* footprints: the big chips take a 2x2 patch, forcing you to spread out */
-const SIZE = { gpu: [2, 2], cpu: [2, 2], pswitch: [2, 2] };
+/* footprints: GPUs and switches take a 2x2 patch, forcing you to spread out;
+   the CPU stays 1x1 so short traces and retimers have room around it */
+const SIZE = { gpu: [2, 2], pswitch: [2, 2] };
 function esize(t) { return SIZE[t] || [1, 1]; }
 function entCenter(e, y) { const s = esize(e.type); return new THREE.Vector3(tX(e.i) + (s[0] - 1) / 2, y || 0, tZ(e.j) + (s[1] - 1) / 2); }
 function entAt(i, j) { return S.ents.find(e => e.i === i && e.j === j); }
