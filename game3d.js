@@ -206,11 +206,13 @@ function newLevelState(idx) {
   L.pre.forEach(p => s.ents.push({ id: idSeq++, type: p.t, i: p.i, j: p.j, locked: true }));
   return s;
 }
-/* footprints: GPUs and switches take a 2x2 patch, forcing you to spread out;
-   the CPU stays 1x1 so short traces and retimers have room around it */
-const SIZE = { gpu: [2, 2], pswitch: [2, 2] };
+/* footprints: GPUs are a wide 2x1 card, switches a chunky 2x2; the CPU stays
+   1x1 so short traces and retimers have room around it */
+const SIZE = { gpu: [2, 1], pswitch: [2, 2] };
 function esize(t) { return SIZE[t] || [1, 1]; }
 function entCenter(e, y) { const s = esize(e.type); return new THREE.Vector3(tX(e.i) + (s[0] - 1) / 2, y || 0, tZ(e.j) + (s[1] - 1) / 2); }
+/* per-axis scale so a 2x1 stretches wide, a 2x2 grows square (never distorts height oddly) */
+function pieceScale(type) { const s = esize(type); return [s[0] > 1 ? 1.85 : 1, (s[0] > 1 && s[1] > 1) ? 1.85 : 1, s[1] > 1 ? 1.85 : 1]; }
 function entAt(i, j) { return S.ents.find(e => e.i === i && e.j === j); }
 function entCovering(i, j) {
   return S.ents.find(e => { const s = esize(e.type); return i >= e.i && i < e.i + s[0] && j >= e.j && j < e.j + s[1]; });
@@ -766,7 +768,7 @@ function syncScene() {
       m = buildPiece(e.type);
       m.userData.ent = e;
       m.traverse(o => { o.userData.entId = e.id; });
-      if (big) m.scale.setScalar(1.85);
+      if (big) m.scale.set(...pieceScale(e.type));
       scene.add(m);
       m.position.copy(entCenter(e));
       entMeshes.set(e.id, m);
@@ -1424,7 +1426,7 @@ function animate(ts) {
     const s = esize(ghostType);
     ghost.visible = true;
     ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
-    ghost.scale.setScalar((s[0] > 1 || s[1] > 1) ? 1.85 : 1);
+    ghost.scale.set(...(CAT[ghostType] ? pieceScale(ghostType) : [1, 1, 1]));
     const bad = ghostType === 'retimer'
       ? (entCovering(hoverTile.i, hoverTile.j) || !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === hoverTile.i && p.j === hoverTile.j)))
       : !fits(ghostType, hoverTile.i, hoverTile.j);
