@@ -464,6 +464,39 @@ controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
+/* ---- smooth scale transitions (zoom between server and data hall) ---- */
+const CAM_HOME = new THREE.Vector3(0, 14.5, 12.5);
+const CAM_TARGET = new THREE.Vector3(0, 0, 0.6);
+let camTween = null;
+function beginScaleZoom(zoomOut) {
+  const start = zoomOut ? new THREE.Vector3(0, 8, 6.6) : new THREE.Vector3(0, 27, 23);
+  camera.position.copy(start);
+  camTween = { t: 0, dur: 1.1, from: start.clone(), to: CAM_HOME.clone() };
+  controls.enabled = false;
+}
+/* over-scroll at the zoom limit hops between the two sandboxes */
+let overscroll = 0, lastWheel = 0;
+function serverSandboxIdx() { return LEVELS.findIndex(L => L.sandbox && !L.islands); }
+function dataHallIdx() { return LEVELS.findIndex(L => L.title.indexOf('Data hall') >= 0); }
+renderer.domElement.addEventListener('wheel', ev => {
+  if (!S || !S.level.sandbox || camTween) return;
+  const now = performance.now();
+  if (now - lastWheel > 450) overscroll = 0;
+  lastWheel = now;
+  const dist = camera.position.distanceTo(controls.target);
+  const isHall = S.level.title.indexOf('Data hall') >= 0;
+  const isServerSandbox = S.level.sandbox && !S.level.islands;
+  if (isServerSandbox && ev.deltaY > 0 && dist >= controls.maxDistance - 0.8) {
+    overscroll += ev.deltaY;
+    if (overscroll > 60) say('Keep scrolling out to zoom to the data hall…');
+    if (overscroll > 300) { overscroll = 0; startLevel(dataHallIdx()); }
+  } else if (isHall && ev.deltaY < 0 && dist <= controls.minDistance + 0.8) {
+    overscroll += -ev.deltaY;
+    if (overscroll > 60) say('Keep scrolling in to zoom into a server…');
+    if (overscroll > 300) { overscroll = 0; startLevel(serverSandboxIdx()); }
+  } else overscroll = 0;
+}, { passive: true });
+
 const hemi = new THREE.HemisphereLight(0xffffff, 0xa8d8a0, 1.0);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2d8, 1.6);
@@ -1509,6 +1542,8 @@ function buildLevelSelect() {
 }
 function startLevel(idx) {
   clearTimeout(advanceTimer);
+  const wasIsland = S ? !!S.level.islands : null;
+  const crossScale = S && (!!LEVELS[idx].islands !== wasIsland);
   FX.forEach(p => scene.remove(p.m));
   FX = [];
   entMeshes.forEach(m => scene.remove(m));
@@ -1524,6 +1559,7 @@ function startLevel(idx) {
   showInspector(null);
   recompute();
   setupSurvival();
+  if (crossScale) beginScaleZoom(!!S.level.islands && !wasIsland);
   showLesson();
 }
 
@@ -1549,7 +1585,16 @@ function animate(ts) {
   const t = ts / 1000;
   const dt = Math.max(0.001, Math.min(0.05, t - lastT || 0.016));
   lastT = t;
-  controls.update();
+  if (camTween) {
+    camTween.t += dt / camTween.dur;
+    const x = Math.min(1, camTween.t);
+    const k = x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;  // easeInOutQuad
+    camera.position.lerpVectors(camTween.from, camTween.to, k);
+    camera.lookAt(CAM_TARGET);
+    if (camTween.t >= 1) { camTween = null; controls.target.copy(CAM_TARGET); controls.enabled = true; controls.update(); }
+  } else {
+    controls.update();
+  }
 
   /* smooth entity motion + drag follow */
   S.ents.forEach(e => {

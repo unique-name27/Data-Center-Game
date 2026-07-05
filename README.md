@@ -46,7 +46,7 @@ Extras: a **🌙 Space / ☀ Day** button swaps the sky for a starfield with sho
 - **Move a part** — drag it, or hover/select it and use the **arrow keys / WASD**. Cables re-route automatically.
 - **Inspect** — click any device or cable to read what it is and its live status.
 - **Remove** — the Remove tool, or `Del` on a selection. `Esc` cancels.
-- **3D camera** — right-drag to orbit, scroll to zoom.
+- **3D camera** — right-drag to orbit, scroll to zoom. Switching between the server scale and the data-hall scale animates a smooth zoom; in the sandboxes you can **keep scrolling past the zoom limit** to glide out to the data hall (or back down into a server).
 - **Survival** — click a red (downed) link to send an engineer to fix it.
 
 ## Tech
