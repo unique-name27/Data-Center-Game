@@ -593,6 +593,69 @@ for (let k = 0; k < 4; k++) {
   clouds.push(cl);
 }
 
+/* ---- space mode: starfield + shooting stars ---- */
+const starGeo = new THREE.BufferGeometry();
+const starPos = [], starPhase = [];
+for (let i = 0; i < 1400; i++) {
+  const r = 55 + Math.random() * 35;
+  const th = Math.random() * Math.PI * 2;
+  const y = 4 + Math.random() * 55;
+  const rr = Math.sqrt(Math.max(0, r * r - y * y));
+  starPos.push(Math.cos(th) * rr, y, Math.sin(th) * rr);
+  starPhase.push(Math.random() * Math.PI * 2);
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.42, sizeAttenuation: true, transparent: true, opacity: 0.85 });
+const starfield = new THREE.Points(starGeo, starMat);
+starfield.visible = false;
+scene.add(starfield);
+
+const shooters = [];
+for (let i = 0; i < 5; i++) {
+  const geo = new THREE.CylinderGeometry(0.05, 0.0, 3.4, 5);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  const m = new THREE.Mesh(geo, mat);
+  m.visible = false; scene.add(m);
+  shooters.push({ mesh: m, life: 0, vel: new THREE.Vector3() });
+}
+let spaceMode = false, shootTimer = 1.5;
+function setSpaceMode(on) {
+  spaceMode = on;
+  scene.background = new THREE.Color(on ? 0x070912 : 0xbfe4f5);
+  scene.fog.color.set(on ? 0x0a0d1c : 0xcfeaf7);
+  scene.fog.near = on ? 34 : 30; scene.fog.far = on ? 90 : 70;
+  starfield.visible = on;
+  sun.intensity = on ? 0.55 : 1.6;
+  sun.color.set(on ? 0xaFC0FF : 0xfff2d8);
+  hemi.intensity = on ? 0.5 : 1.0;
+  hemi.color.set(on ? 0x8595c8 : 0xffffff);
+  hemi.groundColor.set(on ? 0x1b2340 : 0xa8d8a0);
+  if (typeof ocean !== 'undefined') ocean.material.color.set(on ? 0x0c1a33 : 0x8fd9ec);
+  clouds.forEach(c => c.visible = !on);
+}
+function updateSpace(dt, t) {
+  if (!spaceMode) { shooters.forEach(s => { if (s.mesh.visible) s.mesh.visible = false; }); return; }
+  starMat.opacity = 0.7 + Math.sin(t * 1.6) * 0.15;
+  shootTimer -= dt;
+  if (shootTimer <= 0) {
+    const s = shooters.find(x => !x.mesh.visible);
+    if (s) {
+      s.mesh.position.set(-28 + Math.random() * 12, 20 + Math.random() * 10, -22 + Math.random() * 34);
+      s.vel.set(22 + Math.random() * 12, -(6 + Math.random() * 5), (Math.random() - 0.5) * 8);
+      s.life = 1.0; s.mesh.visible = true;
+      s.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), s.vel.clone().normalize());
+    }
+    shootTimer = 1.6 + Math.random() * 3.5;
+  }
+  shooters.forEach(s => {
+    if (!s.mesh.visible) return;
+    s.mesh.position.addScaledVector(s.vel, dt);
+    s.life -= dt * 0.7;
+    s.mesh.material.opacity = Math.max(0, Math.min(1, s.life)) * 0.95;
+    if (s.life <= 0) s.mesh.visible = false;
+  });
+}
+
 /* ---- piece factories ---- */
 function rbox(w, h, d, color, r) {
   const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r || Math.min(w, h, d) * 0.25), toon(color));
@@ -1452,6 +1515,7 @@ function animate(ts) {
     if (cl.position.x > 18) cl.position.x = -18;
   });
 
+  updateSpace(dt, t);
   updatePulses(dt, ts);
   updateElastics();
   updateFx(dt);
@@ -1499,9 +1563,23 @@ showFact(true);
 setInterval(() => showFact(false), 13000);
 requestAnimationFrame(animate);
 
+/* space-mode toggle button */
+(function () {
+  const b = document.createElement('button');
+  b.id = 'btnSpace'; b.type = 'button'; b.title = 'Space mode';
+  const upd = () => { b.textContent = spaceMode ? '☀ Day' : '🌙 Space'; b.classList.toggle('on', spaceMode); };
+  b.onclick = () => { setSpaceMode(!spaceMode); try { localStorage.setItem('dct3d_space', spaceMode ? '1' : '0'); } catch (e) {} upd(); };
+  const host = document.getElementById('hudBtns');
+  if (host) host.insertBefore(b, host.firstChild);
+  let saved = false; try { saved = localStorage.getItem('dct3d_space') === '1'; } catch (e) {}
+  if (saved) setSpaceMode(true);
+  upd();
+})();
+
 /* testing hooks */
 window.G3D = {
   get S() { return S; },
   startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
+  setSpaceMode, get spaceMode() { return spaceMode; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
