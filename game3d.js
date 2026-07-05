@@ -184,6 +184,25 @@ const LEVELS = [
       <p>Zoom all the way out. Drop <b>server islands</b> and <b>core switch islands</b> anywhere on the sea, then wire them together with <b>AEC</b> and <b>AOC</b> cables to grow your own rack — an archipelago of servers.</p>
       <p>New: <b>cables have capacity</b>. A server island pushes <b>6.4 Tb/s</b>, but one AEC only carries <b>4</b>. When a link is overloaded it glows <b style="color:#e05555">red</b>; add parallel cables or switch to a fatter <b>AOC (10 Tb/s)</b> until it cools to <b style="color:#43d15f">green</b>.</p>
       <p class="tip">Islands need a little elbow room — drop them a couple of tiles apart. Drag to rearrange, Del to remove.</p>`
+  },
+  {
+    title: 'Survival — Keep it alive', sandbox: true, islands: true, survival: true,
+    tools: ['aecb', 'aocb'],
+    pre: [
+      { t: 'core', i: 8, j: 4 },
+      { t: 'srv', i: 2, j: 1 }, { t: 'srv', i: 14, j: 1 },
+      { t: 'srv', i: 2, j: 7 }, { t: 'srv', i: 14, j: 7 }
+    ],
+    preCables: [
+      { a: 1, b: 0, type: 'aecb' }, { a: 2, b: 0, type: 'aocb' },
+      { a: 3, b: 0, type: 'aocb' }, { a: 4, b: 0, type: 'aecb' }
+    ],
+    goals: [{ text: 'Keep the servers online — score is your uptime', check: () => false }],
+    lesson: `<h2>Survival — Keep it alive</h2>
+      <p>The rack is built and humming. Now <b>keep it alive.</b> Links fail over time — <b>optics (AOC) fail more often than copper (AEC)</b>, and it only gets worse as your shift wears on.</p>
+      <p>When a link drops it turns <b style="color:#e05555">red</b> and its server may go dark. <b>Click the broken link</b> to send an <b>engineer boat</b> out to repair it. You’ve got a small crew — when several fail at once, triage: save the link feeding the most servers first.</p>
+      <p>Your score is <b>uptime %</b>. The winning move is <b>redundancy</b>: run a <i>second</i> cable from a server to the core (dual-home it) and a single failure won’t take it down at all — build spare links in the quiet moments.</p>
+      <p class="tip">AEC where you can, AOC only where you must — copper fails less. Right-drag to orbit.</p>`
   }
 ];
 
@@ -204,6 +223,11 @@ function newLevelState(idx) {
     stats: { online: 0, tput: 0, watts: 0, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false }
   };
   L.pre.forEach(p => s.ents.push({ id: idSeq++, type: p.t, i: p.i, j: p.j, locked: true }));
+  (L.preCables || []).forEach(pc => {
+    const A = s.ents[pc.a], B = s.ents[pc.b];
+    s.cables.push({ id: idSeq++, type: pc.type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0, down: false });
+  });
+  if (L.survival) s.survival = { time: 0, upNum: 0, upDen: 0, sinceFail: 6, ended: false };
   return s;
 }
 /* footprints: GPUs are a wide 2x1 card, switches a chunky 2x2; the CPU stays
@@ -250,7 +274,7 @@ function recompute() {
     c.ok = !dead;
   });
 
-  const healthy = S.cables.filter(c => c.ok);
+  const healthy = S.cables.filter(c => c.ok && !c.down);
   const other = (c, e) => S.ents.find(x => x.id === (c.a === e.id ? c.b : c.a));
   const adj = new Map();
   S.ents.forEach(e => adj.set(e.id, []));
@@ -281,6 +305,7 @@ function recompute() {
       e.online = links.length > 0;
       if (!e.online) { e.congested = false; return; }
       online++; tput += CAT.srv.tput;
+      if (S.level.survival) { e.congested = false; return; }   /* survival uses green/red = up/down, not congestion */
       const totalCap = links.reduce((s, c) => s + (CAB[c.type].cap || 4), 0);
       const util = CAT.srv.tput / totalCap;
       e.congested = util > 1.0001;
@@ -656,6 +681,95 @@ function updateSpace(dt, t) {
   });
 }
 
+/* ---- survival: engineer boats that repair downed links ---- */
+let engineers = [];
+function buildBoat() {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.26, 1.05, 1, 1, 1), toon(0x8a5a33)); hull.position.y = 0.1; hull.castShadow = true;
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.66), toon(0xb5895a)); deck.position.y = 0.25;
+  const cabin = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.26, 0.3, 2, 0.05), toon(0xeae2d2)); cabin.position.set(0, 0.4, -0.16);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.22, 8), toon(0xf08a3c)); body.position.set(0, 0.4, 0.22);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), toon(0xffcf9e)); head.position.set(0, 0.57, 0.22);
+  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), toon(0xffd23f)); hat.position.set(0, 0.585, 0.22);
+  const wrench = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.03, 6, 14),
+    new THREE.MeshToonMaterial({ color: 0x8dffb8, gradientMap: gradTex, emissive: 0x2fbf6a, emissiveIntensity: 1.2 }));
+  wrench.position.set(0, 0.85, 0.05); wrench.visible = false;
+  g.add(hull, deck, cabin, body, head, hat, wrench);
+  g.userData.wrench = wrench;
+  return g;
+}
+const BOAT_Y = -1.32;
+function cableMid(c) {
+  const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
+  const p = entCenter(A).lerp(entCenter(B), 0.5); p.y = BOAT_Y; return p;
+}
+function faceBoat(m, target) {
+  const dx = target.x - m.position.x, dz = target.z - m.position.z;
+  if (dx * dx + dz * dz > 0.01) m.rotation.y = Math.atan2(dx, dz);
+}
+function setupSurvival() {
+  engineers.forEach(en => scene.remove(en.mesh));
+  engineers = [];
+  if (!S.level.survival) return;
+  const core = S.ents.find(e => e.type === 'core');
+  const c = core ? entCenter(core) : new THREE.Vector3(0, 0, 0);
+  for (let k = 0; k < 3; k++) {
+    const m = buildBoat(); scene.add(m);
+    const ang = -0.7 + k * 0.7;
+    const home = new THREE.Vector3(c.x + Math.sin(ang) * 2.7, BOAT_Y, c.z + 2.6 + Math.cos(ang) * 0.4);
+    m.position.copy(home);
+    engineers.push({ mesh: m, state: 'idle', cable: null, timer: 0, home });
+  }
+}
+function dispatchEngineer(cable) {
+  if (!S.level.survival || !cable.down) return;
+  if (engineers.some(en => en.cable === cable)) return say('An engineer is already on that one.');
+  const en = engineers.find(e => e.state === 'idle');
+  if (!en) return say('All engineers are busy — hang on!');
+  en.cable = cable; en.state = 'going';
+  say('Engineer dispatched ⛴');
+}
+function idleEngineers() { return engineers.filter(e => e.state === 'idle').length; }
+function updateSurvival(dt, t) {
+  const sv = S.survival; if (!sv) return;
+  sv.time += dt;
+  const total = S.ents.filter(e => e.type === 'srv').length || 1;
+  sv.upNum += (S.stats.online / total) * dt; sv.upDen += dt;
+  /* failures — optics fail more than copper; cadence tightens over time */
+  sv.sinceFail -= dt;
+  if (sv.sinceFail <= 0) {
+    const ups = S.cables.filter(c => !c.down && c.ok);
+    if (ups.length) {
+      const w = c => (c.type === 'aocb' ? 1.7 : c.type === 'aecb' ? 1.0 : 0.6);
+      let tot = ups.reduce((a, c) => a + w(c), 0), r = Math.random() * tot, pick = ups[ups.length - 1];
+      for (const c of ups) { r -= w(c); if (r <= 0) { pick = c; break; } }
+      pick.down = true; recompute();
+      say('⚠ A link just went down!');
+    }
+    sv.sinceFail = Math.max(2.4, 7.5 - sv.time * 0.09);
+  }
+  engineers.forEach(en => {
+    const m = en.mesh, wr = m.userData.wrench;
+    m.position.y = BOAT_Y + Math.sin(t * 2 + m.id) * 0.03;
+    if (en.cable && !S.cables.includes(en.cable)) { en.cable = null; en.state = 'returning'; }
+    if (en.state === 'idle') { wr.visible = false; m.rotation.y += dt * 0.15; }
+    else if (en.state === 'going') {
+      const tp = cableMid(en.cable); faceBoat(m, tp);
+      m.position.lerp(tp, Math.min(1, dt * 1.7));
+      if (m.position.distanceTo(tp) < 0.45) { en.state = 'fixing'; en.timer = 3; }
+    } else if (en.state === 'fixing') {
+      wr.visible = true; wr.rotation.z += dt * 9;
+      en.timer -= dt;
+      if (en.timer <= 0) { en.cable.down = false; recompute(); say('✓ Link repaired!'); en.state = 'returning'; en.cable = null; }
+    } else if (en.state === 'returning') {
+      wr.visible = false; faceBoat(m, en.home);
+      m.position.lerp(en.home, Math.min(1, dt * 2));
+      if (m.position.distanceTo(en.home) < 0.3) en.state = 'idle';
+    }
+  });
+  updateHUD();
+}
+
 /* ---- piece factories ---- */
 function rbox(w, h, d, color, r) {
   const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r || Math.min(w, h, d) * 0.25), toon(color));
@@ -883,7 +997,7 @@ function rebuildCables() {
     cableCurves.set(c.id, curve);
     const n = c.path.length - 1;
     const segs = Math.max(8, n * 6);
-    if (c.ok) {
+    if (c.ok && !c.down) {
       /* in the data hall, colour by utilisation (congestion) instead of cable type */
       let mat, radius = 0.055;
       if (c.util !== undefined) {
@@ -900,7 +1014,7 @@ function rebuildCables() {
       tube.userData.hot = c.util !== undefined && c.util > 1.0;
       cableGroup.add(tube);
     } else {
-      const fSplit = Math.max(0.02, Math.min(0.98, c.failAt / n));
+      const fSplit = c.down ? 0.001 : Math.max(0.02, Math.min(0.98, c.failAt / n));
       const livePts = [], deadPts = [];
       for (let k = 0; k <= 40; k++) {
         const t = k / 40;
@@ -1165,6 +1279,7 @@ dom.addEventListener('pointerdown', ev => {
     return;
   }
   const th = thingFromPointer(ev);
+  if (S.level.survival && th && th.kind === 'cable' && th.cable.down) { dispatchEngineer(th.cable); return; }
   S.selected = th;
   showInspector(th);
 });
@@ -1308,12 +1423,21 @@ function showInspector(th) {
     $('infoBody').innerHTML = `<h3>${RET.name}</h3><p class="tagline">${RET.tag}</p><p class="ok">Regenerating signal to 100% at this point.</p><p>${RET.desc}</p><p class="real"><b>Real world:</b> ${RET.real}</p>`;
   }
 }
+function label(id, txt) { const el = $(id); if (el && el.previousElementSibling) el.previousElementSibling.textContent = txt; }
 function updateHUD() {
-  $('mTput').textContent = S.stats.tput.toFixed(1) + ' Tb/s';
-  const hot = S.stats.hot || 0;
   const pw = $('mPower');
-  if (S.level.islands) { pw.textContent = hot ? hot + ' link' + (hot > 1 ? 's' : '') + ' overloaded' : S.stats.watts + ' W'; pw.classList.toggle('bad', hot > 0); }
-  else { pw.textContent = S.stats.watts + ' W'; pw.classList.remove('bad'); }
+  if (S.level.survival && S.survival) {
+    const total = S.ents.filter(e => e.type === 'srv').length || 1;
+    const up = S.survival.upDen > 0 ? (S.survival.upNum / S.survival.upDen * 100) : 100;
+    label('mTput', 'Uptime'); $('mTput').textContent = up.toFixed(1) + '%';
+    label('mPower', 'Servers'); pw.textContent = S.stats.online + ' / ' + total + ' up';
+    pw.classList.toggle('bad', S.stats.online < total);
+  } else {
+    label('mTput', 'Throughput'); $('mTput').textContent = S.stats.tput.toFixed(1) + ' Tb/s';
+    const hot = S.stats.hot || 0;
+    if (S.level.islands) { label('mPower', 'Link power'); pw.textContent = hot ? hot + ' link' + (hot > 1 ? 's' : '') + ' overloaded' : S.stats.watts + ' W'; pw.classList.toggle('bad', hot > 0); }
+    else { label('mPower', 'Link power'); pw.textContent = S.stats.watts + ' W'; pw.classList.remove('bad'); }
+  }
   $('levelName').textContent = S.level.title;
   const mode = $('btnMode');
   mode.textContent = S.level.sandbox ? '▶ Start lessons' : 'Sandbox';
@@ -1321,6 +1445,23 @@ function updateHUD() {
 }
 function updateGoals() {
   const ul = $('goalList'); ul.innerHTML = '';
+  if (S.level.survival && S.survival) {
+    const total = S.ents.filter(e => e.type === 'srv').length || 1;
+    const down = S.cables.filter(c => c.down).length;
+    const rows = [
+      ['⏱ Shift time', Math.floor(S.survival.time) + 's'],
+      ['🖥 Servers online', S.stats.online + ' / ' + total],
+      ['🔴 Links down', String(down)],
+      ['⛴ Engineers free', idleEngineers() + ' / ' + engineers.length]
+    ];
+    rows.forEach(([k, v]) => {
+      const li = document.createElement('li');
+      li.className = (k[0] === '🔴' && down > 0) || (k[0] === '🖥' && S.stats.online < total) ? '' : 'done';
+      li.textContent = k + ': ' + v;
+      ul.appendChild(li);
+    });
+    return;
+  }
   S.level.goals.forEach(g => {
     const li = document.createElement('li');
     const ok = g.check(S);
@@ -1382,6 +1523,7 @@ function startLevel(idx) {
   $('btnNext').hidden = true;
   showInspector(null);
   recompute();
+  setupSurvival();
   showLesson();
 }
 
@@ -1516,6 +1658,7 @@ function animate(ts) {
   });
 
   updateSpace(dt, t);
+  if (S.level.survival) updateSurvival(dt, t);
   updatePulses(dt, ts);
   updateElastics();
   updateFx(dt);
@@ -1581,5 +1724,6 @@ window.G3D = {
   get S() { return S; },
   startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
   setSpaceMode, get spaceMode() { return spaceMode; },
+  recompute, dispatchEngineer, updateSurvival, get engineers() { return engineers; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
