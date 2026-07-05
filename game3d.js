@@ -56,13 +56,13 @@ const CAT = {
     real: 'Every server’s NIC cables out to the ToR switch: that link is the boundary between “inside the box” and “the data center”.'
   },
   srv: {
-    role: 'inode', name: 'Server island', ports: 2, tput: 6.4,
+    role: 'inode', name: 'Server island', ports: 4, tput: 6.4,
     tag: 'A whole server you built, on its own island',
-    desc: 'Each island is one of the GPU servers you assembled — CPU, GPUs, memory and NIC, boxed up. It comes online when its NIC has a healthy cable to the core switch island.',
+    desc: 'Each island is one of the GPU servers you assembled — CPU, GPUs, memory and NIC, boxed up. It pushes 6.4 Tb/s and comes online when it has a healthy cable to a core. One AEC (4 Tb/s) isn’t enough — bundle a few, or use a fatter AOC.',
     real: 'Between servers there is no PCB to etch a trace onto — every link is a real pluggable cable (AEC for short hops, AOC for long ones).'
   },
   core: {
-    role: 'ihub', name: 'Core switch island', ports: 8,
+    role: 'ihub', name: 'Core switch island', ports: 24,
     tag: 'Where every server’s cable lands',
     desc: 'The rack’s switch, on its own island in the middle. Run a cable from each server island to here to wire the whole rack together — the far islands are too far for copper AEC and need optical AOC.',
     real: 'This is the top-of-rack / leaf switch every server uplinks to. Distance decides copper vs optics.'
@@ -70,22 +70,22 @@ const CAT = {
 };
 const CAB = {
   trace: {
-    name: 'PCIe trace', watts: 0.5, loss: 25, color: 0xd9a326, retime: true,
+    name: 'PCIe trace', watts: 0.5, loss: 25, cap: 2, color: 0xd9a326, retime: true,
     tag: 'Copper etched right into the board',
     desc: 'A copper trace is nearly free — but at PCIe Gen6 speeds the signal smears out fast (25% health per tile). Long runs need retimer chips placed along the route.',
     real: 'Past ~30 cm of board copper at Gen5/Gen6, designers reach for a retimer.'
   },
   aecb: {
-    name: 'AEC (retimed copper cable)', watts: 5, loss: 6, color: 0x2fc4b2, retime: false,
+    name: 'AEC (retimed copper cable)', watts: 5, loss: 6, cap: 4, color: 0x2fc4b2, retime: false,
     tag: 'Copper with retimers in the plugs',
-    desc: 'An Active Electrical Cable is copper with a retimer chip inside each connector shell — 6% loss per tile instead of 25%.',
+    desc: 'An Active Electrical Cable is copper with a retimer chip inside each connector shell — 6% loss per tile instead of 25%. Carries up to 4 Tb/s per cable, so a busy server needs a few in parallel.',
     real: 'Inside GPU servers, AECs carry PCIe between boards and shelves — built on the same retimer silicon you place by hand.'
   },
   aocb: {
-    name: 'AOC (active optical cable)', watts: 9, loss: 1.0, color: 0x4a9df0, retime: false,
+    name: 'AOC (active optical cable)', watts: 9, loss: 1.0, cap: 10, color: 0x4a9df0, retime: false,
     tag: 'Light inside the box',
-    desc: 'An Active Optical Cable converts the signal to light: 1% loss per tile, reach basically unlimited at this scale. You pay in watts — lasers are never free.',
-    real: 'AOC vs AEC is a live engineering debate: optics reach farther; copper sips power and fails less.'
+    desc: 'An Active Optical Cable converts the signal to light: 1% loss per tile, reach basically unlimited, and up to 10 Tb/s down one cable — a single AOC can carry a whole server. You pay in watts.',
+    real: 'AOC vs AEC is a live engineering debate: optics reach farther and carry more; copper sips power and fails less.'
   }
 };
 const RET = {
@@ -166,14 +166,24 @@ const LEVELS = [
       <p class="tip">This is the real reason AECs and AOCs exist: the moment you leave the board, copper physics decides how far you can go.</p>`
   },
   {
-    title: 'Sandbox — Free build', sandbox: true,
+    title: 'Sandbox — Inside a server', sandbox: true,
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'uplink', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [],
     goals: [{ text: 'Build any server you like', check: () => false }],
-    lesson: `<h2>Sandbox — Free build</h2>
+    lesson: `<h2>Sandbox — Inside a server</h2>
       <p>The island is yours. Drop <b>CPUs</b>, hang GPUs and memory off <b>PCIe switches</b> and <b>CXL controllers</b>, run <b>AEC</b> and <b>AOC</b> cables across the board, and watch the data orbs flow.</p>
-      <p>New here? Hit <b>▶ Start lessons</b> for the three-step guided build.</p>
+      <p>Want the bigger picture? Try <b>Sandbox — Data hall</b> in the level menu to build a whole rack of server islands.</p>
       <p class="tip">A GPU sparkles green when it can reach a CPU and memory. Right-drag to orbit, scroll to zoom.</p>`
+  },
+  {
+    title: 'Sandbox — Data hall', sandbox: true, islands: true,
+    tools: ['srv', 'core', 'aecb', 'aocb'],
+    pre: [{ t: 'core', i: 8, j: 4 }],
+    goals: [{ text: 'Grow a data hall your way', check: () => false }],
+    lesson: `<h2>Sandbox — Data hall</h2>
+      <p>Zoom all the way out. Drop <b>server islands</b> and <b>core switch islands</b> anywhere on the sea, then wire them together with <b>AEC</b> and <b>AOC</b> cables to grow your own rack — an archipelago of servers.</p>
+      <p>New: <b>cables have capacity</b>. A server island pushes <b>6.4 Tb/s</b>, but one AEC only carries <b>4</b>. When a link is overloaded it glows <b style="color:#e05555">red</b>; add parallel cables or switch to a fatter <b>AOC (10 Tb/s)</b> until it cools to <b style="color:#43d15f">green</b>.</p>
+      <p class="tip">Islands need a little elbow room — drop them a couple of tiles apart. Drag to rearrange, Del to remove.</p>`
   }
 ];
 
@@ -256,16 +266,26 @@ function recompute() {
   };
   let online = 0, tput = 0;
   if (S.level.islands) {
-    /* island scale: a server island is online when it has a healthy cable to a core */
+    /* island scale: a server island is online when it has a healthy cable to a core.
+       congestion: split the server's 6.4 Tb/s across its healthy core-links by capacity;
+       util = load / totalCapacity, shown as the link colour. */
+    S.cables.forEach(c => { c.util = undefined; });
     const cores = S.ents.filter(e => e.type === 'core');
+    let hot = 0;
     S.ents.forEach(e => {
-      if (e.type === 'srv') {
-        e.online = healthy.some(c => (c.a === e.id || c.b === e.id) && cores.some(k => k.id === (c.a === e.id ? c.b : c.a)));
-        if (e.online) { online++; tput += CAT.srv.tput; }
-      } else e.online = false;
+      if (e.type !== 'srv') { e.online = false; return; }
+      const links = healthy.filter(c => (c.a === e.id || c.b === e.id) && cores.some(k => k.id === (c.a === e.id ? c.b : c.a)));
+      e.online = links.length > 0;
+      if (!e.online) { e.congested = false; return; }
+      online++; tput += CAT.srv.tput;
+      const totalCap = links.reduce((s, c) => s + (CAB[c.type].cap || 4), 0);
+      const util = CAT.srv.tput / totalCap;
+      e.congested = util > 1.0001;
+      links.forEach(c => { c.util = util; });
+      if (e.congested) hot++;
     });
     const watts = S.cables.reduce((w, c) => w + CAB[c.type].watts, 0);
-    S.stats = { online, tput: Math.round(tput * 10) / 10, watts: Math.round(watts * 10) / 10, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false };
+    S.stats = { online, tput: Math.round(tput * 10) / 10, watts: Math.round(watts * 10) / 10, hot, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false };
     syncScene();
     if (!S.done && !S.level.sandbox && S.level.goals.every(g => g.check(S))) {
       S.done = true; unlockLevel(S.idx + 1); levelComplete();
@@ -316,11 +336,19 @@ function say(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
+function isIsland(type) { return type === 'srv' || type === 'core'; }
+function islandSpaced(i, j, ignore) {
+  return !S.ents.some(e => isIsland(e.type) && e !== ignore &&
+    Math.max(Math.abs(e.i - i), Math.abs(e.j - j)) < 3);
+}
+function refreshIslands() { if (S.level.islands) buildWorld(S.level); }
 function tryPlaceEnt(type, i, j) {
   const s = esize(type);
   if (!fits(type, i, j)) return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
+  if (isIsland(type) && !islandSpaced(i, j)) return say('Islands need elbow room — drop it a few tiles from the others.');
   S.ents.push({ id: idSeq++, type, i, j });
   recompute();
+  if (isIsland(type)) refreshIslands();
 }
 function tryPlaceRet(i, j) {
   if (entCovering(i, j)) return say('Retimers go on the cable run, not on a device.');
@@ -346,6 +374,7 @@ function moveEnt(ent, i, j) {
   if (ent.locked) return say('That one is fixed — it can’t be moved.');
   if (i === ent.i && j === ent.j) return;
   if (!fits(ent.type, i, j, ent)) return say('That spot is occupied or off the island.');
+  if (isIsland(ent.type) && !islandSpaced(i, j, ent)) return say('Islands need elbow room — keep them a few tiles apart.');
   ent.i = i; ent.j = j;
   S.cables.forEach(c => {
     if (c.a === ent.id || c.b === ent.id) {
@@ -357,10 +386,13 @@ function moveEnt(ent, i, j) {
   if (S.retimers.some(r => !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j))))
     say('Heads up: a retimer is no longer on any copper route.');
   recompute();
+  if (isIsland(ent.type)) refreshIslands();
 }
 function removeThing(th) {
+  let wasIsland = false;
   if (th.kind === 'ent') {
     if (th.ent.locked) return say('That one came with the board — it stays.');
+    wasIsland = isIsland(th.ent.type);
     S.cables = S.cables.filter(c => c.a !== th.ent.id && c.b !== th.ent.id);
     S.ents = S.ents.filter(e => e !== th.ent);
   } else if (th.kind === 'cable') {
@@ -370,6 +402,7 @@ function removeThing(th) {
   }
   S.selected = null;
   recompute();
+  if (wasIsland) refreshIslands();
 }
 
 /* ================= THREE.JS WORLD ================= */
@@ -515,12 +548,15 @@ function buildWorld(level) {
   scene.remove(worldGroup);
   worldGroup = new THREE.Group();
   if (level.islands) {
-    /* one small island per pre-placed device: the islands ARE the servers */
-    level.pre.forEach(p => {
+    /* one small island under each server/core entity — the islands ARE the servers.
+       driven by live entities so the sandbox can grow its own archipelago. */
+    const src = (S && S.ents.length) ? S.ents.filter(e => e.type === 'srv' || e.type === 'core')
+      : level.pre.filter(p => p.t === 'srv' || p.t === 'core').map(p => ({ type: p.t, i: p.i, j: p.j }));
+    src.forEach(p => {
       const cx = tX(p.i), cz = tZ(p.j);
-      const big = p.t === 'core';
-      const w = big ? 4.2 : 3.4, d = big ? 4.2 : 3.4;
-      makeIsland(worldGroup, cx, cz, w, d, big ? 3 : 3, big ? 3 : 3, 0.6);
+      const big = p.type === 'core';
+      const w = big ? 3.6 : 2.8, d = big ? 3.6 : 2.8;
+      makeIsland(worldGroup, cx, cz, w, d, 3, 3, 0.6);
       tree(worldGroup, cx + w * 0.32, cz - d * 0.32, big ? 0.8 : 0.6);
       flowerPatch(worldGroup, cx - w * 0.3, cz + d * 0.28);
       if (!big) rock(worldGroup, cx - w * 0.32, cz - d * 0.3, 0.6);
@@ -782,9 +818,20 @@ function rebuildCables() {
     const n = c.path.length - 1;
     const segs = Math.max(8, n * 6);
     if (c.ok) {
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, 0.055, 8, false), toon(CAB[c.type].color));
+      /* in the data hall, colour by utilisation (congestion) instead of cable type */
+      let mat, radius = 0.055;
+      if (c.util !== undefined) {
+        const hex = c.util > 1.0 ? 0xe05555 : c.util > 0.7 ? 0xf5c542 : 0x43d15f;
+        mat = new THREE.MeshToonMaterial({ color: hex, gradientMap: gradTex, emissive: hex, emissiveIntensity: c.util > 1.0 ? 0.55 : 0.12 });
+        radius = 0.05 + Math.min(0.05, c.util * 0.035);
+        mat.userData = { hot: c.util > 1.0 };
+      } else {
+        mat = toon(CAB[c.type].color);
+      }
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, radius, 8, false), mat);
       tube.castShadow = true;
       tube.userData.cableId = c.id;
+      tube.userData.hot = c.util !== undefined && c.util > 1.0;
       cableGroup.add(tube);
     } else {
       const fSplit = Math.max(0.02, Math.min(0.98, c.failAt / n));
@@ -1099,7 +1146,8 @@ const $ = id => document.getElementById(id);
 const SPR_ICON = {
   gpu: ['assets/gpu.png'], cpu: ['assets/cpu.png'], mem: ['assets/memory.png'],
   pswitch: ['assets/switch.png'], memctl: ['assets/memoryExpander.png'], nic: ['assets/networking.png'],
-  uplink: ['assets/props4.png', [1530, 1416, 59, 136]], retimer: ['assets/retimer.png']
+  uplink: ['assets/props4.png', [1530, 1416, 59, 136]], retimer: ['assets/retimer.png'],
+  srv: ['assets/props4.png', [1530, 1416, 59, 136]], core: ['assets/switch.png']
 };
 const ICON_IMGS = {};
 Object.values(SPR_ICON).forEach(([src]) => {
@@ -1196,7 +1244,10 @@ function showInspector(th) {
 }
 function updateHUD() {
   $('mTput').textContent = S.stats.tput.toFixed(1) + ' Tb/s';
-  $('mPower').textContent = S.stats.watts + ' W';
+  const hot = S.stats.hot || 0;
+  const pw = $('mPower');
+  if (S.level.islands) { pw.textContent = hot ? hot + ' link' + (hot > 1 ? 's' : '') + ' overloaded' : S.stats.watts + ' W'; pw.classList.toggle('bad', hot > 0); }
+  else { pw.textContent = S.stats.watts + ' W'; pw.classList.remove('bad'); }
   $('levelName').textContent = S.level.title;
   const mode = $('btnMode');
   mode.textContent = S.level.sandbox ? '▶ Start lessons' : 'Sandbox';
@@ -1355,9 +1406,10 @@ function animate(ts) {
     }
   });
 
-  /* dead cable flicker */
+  /* dead cable flicker + overloaded (hot) cable pulse */
   cableGroup.children.forEach(m => {
     if (m.userData.dead) m.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(t * 6)) * 0.6;
+    else if (m.userData.hot) m.material.emissiveIntensity = 0.35 + Math.abs(Math.sin(t * 7)) * 0.7;
   });
 
   /* hover + ghost (footprint-aware) */
