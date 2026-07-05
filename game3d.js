@@ -425,15 +425,19 @@ const ocean = new THREE.Mesh(
 ocean.position.y = -1.75;
 scene.add(ocean);
 
-function grassTexture(cols, rows) {
+/* grid is inset by fx/fz (0..0.5 fraction) so the drawn cells line up
+   exactly with the tile centres where components are placed */
+function grassTexture(cols, rows, fx, fz) {
+  fx = fx || 0; fz = fz || 0;
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 576;
   const g = c.getContext('2d');
   g.fillStyle = '#7ecb54'; g.fillRect(0, 0, 1024, 576);
   g.strokeStyle = 'rgba(70,140,50,.5)'; g.lineWidth = 2;
-  const cw = 1024 / cols, ch = 576 / rows;
-  for (let i = 0; i <= cols; i++) { g.beginPath(); g.moveTo(i * cw, 0); g.lineTo(i * cw, 576); g.stroke(); }
-  for (let j = 0; j <= rows; j++) { g.beginPath(); g.moveTo(0, j * ch); g.lineTo(1024, j * ch); g.stroke(); }
+  const x0 = fx * 1024, x1 = (1 - fx) * 1024, cw = (x1 - x0) / cols;
+  const z0 = fz * 576, z1 = (1 - fz) * 576, ch = (z1 - z0) / rows;
+  for (let i = 0; i <= cols; i++) { g.beginPath(); g.moveTo(x0 + i * cw, z0); g.lineTo(x0 + i * cw, z1); g.stroke(); }
+  for (let j = 0; j <= rows; j++) { g.beginPath(); g.moveTo(x0, z0 + j * ch); g.lineTo(x1, z0 + j * ch); g.stroke(); }
   for (let k = 0; k < 700; k++) {
     g.fillStyle = k % 2 ? 'rgba(255,255,255,.10)' : 'rgba(60,130,45,.18)';
     g.fillRect(Math.random() * 1024, Math.random() * 576, 3, 3);
@@ -479,8 +483,10 @@ function rock(parent, x, z, s) {
 /* ---- world rebuild per level ---- */
 let worldGroup = new THREE.Group();
 scene.add(worldGroup);
-function makeIsland(parent, cx, cz, w, d, cols, rows) {
-  const top = new THREE.Mesh(new RoundedBoxGeometry(w, 0.7, d, 4, 0.3), toon(0xffffff, { map: grassTexture(cols, rows) }));
+function makeIsland(parent, cx, cz, w, d, cols, rows, border) {
+  border = border || 0;
+  const top = new THREE.Mesh(new RoundedBoxGeometry(w, 0.7, d, 4, 0.3),
+    toon(0xffffff, { map: grassTexture(cols, rows, border / w, border / d) }));
   top.position.set(cx, -0.35, cz); top.receiveShadow = true;
   const dirt = new THREE.Mesh(new RoundedBoxGeometry(w + 0.3, 1.3, d + 0.3, 4, 0.4), toon(0x9a6a3f));
   dirt.position.set(cx, -1.05, cz);
@@ -498,13 +504,13 @@ function buildWorld(level) {
       const cx = tX(p.i), cz = tZ(p.j);
       const big = p.t === 'core';
       const w = big ? 4.2 : 3.4, d = big ? 4.2 : 3.4;
-      makeIsland(worldGroup, cx, cz, w, d, big ? 4 : 3, big ? 4 : 3);
+      makeIsland(worldGroup, cx, cz, w, d, big ? 3 : 3, big ? 3 : 3, 0.6);
       tree(worldGroup, cx + w * 0.32, cz - d * 0.32, big ? 0.8 : 0.6);
       flowerPatch(worldGroup, cx - w * 0.3, cz + d * 0.28);
       if (!big) rock(worldGroup, cx - w * 0.32, cz - d * 0.3, 0.6);
     });
   } else {
-    makeIsland(worldGroup, 0, 0, GRID_W + 1.4, GRID_H + 1.4, GRID_W, GRID_H);
+    makeIsland(worldGroup, 0, 0, GRID_W + 1.4, GRID_H + 1.4, GRID_W, GRID_H, 0.7);
     tree(worldGroup, -GRID_W / 2 - 0.1, -GRID_H / 2 - 0.15, 1.1);
     tree(worldGroup, GRID_W / 2 + 0.05, GRID_H / 2 + 0.1, 0.9);
     tree(worldGroup, -GRID_W / 2 - 0.2, GRID_H / 2 + 0.2, 0.8);
