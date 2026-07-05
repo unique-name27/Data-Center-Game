@@ -740,27 +740,57 @@ function faceBoat(m, target) {
   const dx = target.x - m.position.x, dz = target.z - m.position.z;
   if (dx * dx + dz * dz > 0.01) m.rotation.y = Math.atan2(dx, dz);
 }
+const MAX_ENGINEERS = 6;
+function coreCenter() { const c = S.ents.find(e => e.type === 'core'); return c ? entCenter(c) : new THREE.Vector3(0, 0, 0); }
+function engineerHome(k, n, c) {
+  const spread = Math.min(1.9, 0.5 * n);
+  const ang = n > 1 ? -spread / 2 + (spread * k) / (n - 1) : 0;
+  return new THREE.Vector3(c.x + Math.sin(ang) * 2.9, BOAT_Y, c.z + 2.7 + Math.cos(ang) * 0.35);
+}
+function repositionDocks() {
+  const c = coreCenter();
+  engineers.forEach((en, k) => { en.home = engineerHome(k, engineers.length, c); });
+}
+function addEngineer() {
+  if (engineers.length >= MAX_ENGINEERS) return say('That’s a full crew (' + MAX_ENGINEERS + ').');
+  const m = buildBoat(); scene.add(m);
+  const en = { mesh: m, state: 'idle', cable: null, timer: 0, home: new THREE.Vector3() };
+  engineers.push(en);
+  repositionDocks();
+  m.position.copy(en.home);
+  updateHUD();
+}
+function removeEngineer() {
+  if (engineers.length <= 1) return say('You need at least one engineer.');
+  let idx = engineers.findIndex(e => e.state === 'idle');
+  if (idx < 0) idx = engineers.length - 1;
+  const en = engineers.splice(idx, 1)[0];
+  scene.remove(en.mesh);
+  repositionDocks();
+  updateHUD();
+}
 function setupSurvival() {
   engineers.forEach(en => scene.remove(en.mesh));
   engineers = [];
   if (!S.level.survival) return;
-  const core = S.ents.find(e => e.type === 'core');
-  const c = core ? entCenter(core) : new THREE.Vector3(0, 0, 0);
-  for (let k = 0; k < 3; k++) {
-    const m = buildBoat(); scene.add(m);
-    const ang = -0.7 + k * 0.7;
-    const home = new THREE.Vector3(c.x + Math.sin(ang) * 2.7, BOAT_Y, c.z + 2.6 + Math.cos(ang) * 0.4);
-    m.position.copy(home);
-    engineers.push({ mesh: m, state: 'idle', cable: null, timer: 0, home });
-  }
+  for (let k = 0; k < 3; k++) addEngineer();
 }
-function dispatchEngineer(cable) {
+function dispatchEngineer(cable) {   /* manual override: jump an idle engineer to a specific link */
   if (!S.level.survival || !cable.down) return;
-  if (engineers.some(en => en.cable === cable)) return say('An engineer is already on that one.');
+  if (engineers.some(en => en.cable === cable)) return;
   const en = engineers.find(e => e.state === 'idle');
-  if (!en) return say('All engineers are busy — hang on!');
-  en.cable = cable; en.state = 'going';
-  say('Engineer dispatched ⛴');
+  if (en) { en.cable = cable; en.state = 'going'; say('Engineer sent ⛴'); }
+}
+function autoAssign() {
+  const unassigned = S.cables.filter(c => c.down && !engineers.some(e => e.cable === c));
+  if (!unassigned.length) return;
+  const impact = c => S.ents.filter(e => e.type === 'srv' && !e.online && (c.a === e.id || c.b === e.id)).length;
+  unassigned.sort((a, b) => impact(b) - impact(a));
+  for (const c of unassigned) {
+    const en = engineers.find(e => e.state === 'idle');
+    if (!en) break;
+    en.cable = c; en.state = 'going';
+  }
 }
 function idleEngineers() { return engineers.filter(e => e.state === 'idle').length; }
 function updateSurvival(dt, t) {
@@ -781,6 +811,7 @@ function updateSurvival(dt, t) {
     }
     sv.sinceFail = Math.max(2.4, 7.5 - sv.time * 0.09);
   }
+  autoAssign();   /* idle engineers automatically head to downed links, worst first */
   engineers.forEach(en => {
     const m = en.mesh, wr = m.userData.wrench;
     m.position.y = BOAT_Y + Math.sin(t * 2 + m.id) * 0.03;
@@ -1004,17 +1035,18 @@ function syncScene() {
   rebuildCables();
 }
 function cableCurveFor(c) {
-  const lane = (() => {
-    const twins = S.cables.filter(x => (x.a === c.a && x.b === c.b) || (x.a === c.b && x.b === c.a));
-    const k = twins.indexOf(c);
-    return twins.length > 1 ? (k - (twins.length - 1) / 2) * 0.16 : 0;
-  })();
+  const twins = S.cables.filter(x => (x.a === c.a && x.b === c.b) || (x.a === c.b && x.b === c.a));
+  const twinOff = twins.length > 1 ? (twins.indexOf(c) - (twins.length - 1) / 2) * 0.16 : 0;
+  /* a small deterministic per-cable offset + height so wires that share tiles
+     fan out into their own lane instead of stacking on top of each other */
+  const lane = twinOff + (((c.id * 29) % 9) - 4) * 0.058;
+  const hJit = 0.09 + ((c.id * 17) % 5) * 0.014;
   const pts = c.path.map((p, k) => {
     const prev = c.path[k - 1], next = c.path[k + 1];
     const horiz = (prev && prev.j === p.j) || (next && next.j === p.j);
     return new THREE.Vector3(
       tX(p.i) + (horiz ? 0 : lane),
-      0.09 + (k > 0 && k < c.path.length - 1 ? 0.03 : 0),
+      hJit + (k > 0 && k < c.path.length - 1 ? 0.03 : 0),
       tZ(p.j) + (horiz ? lane : 0)
     );
   });
@@ -1465,6 +1497,7 @@ function updateHUD() {
     label('mTput', 'Uptime'); $('mTput').textContent = up.toFixed(1) + '%';
     label('mPower', 'Servers'); pw.textContent = S.stats.online + ' / ' + total + ' up';
     pw.classList.toggle('bad', S.stats.online < total);
+    const ec = $('engCount'); if (ec) ec.textContent = '⛴ ' + engineers.length + ' engineer' + (engineers.length > 1 ? 's' : '');
   } else {
     label('mTput', 'Throughput'); $('mTput').textContent = S.stats.tput.toFixed(1) + ' Tb/s';
     const hot = S.stats.hot || 0;
@@ -1473,8 +1506,9 @@ function updateHUD() {
   }
   $('levelName').textContent = S.level.title;
   const mode = $('btnMode');
-  mode.textContent = S.level.sandbox ? '▶ Start lessons' : 'Sandbox';
-  mode.classList.toggle('big', !!S.level.sandbox);
+  const inExtra = S.level.sandbox || S.level.survival;
+  mode.textContent = inExtra ? '▶ Start campaign' : 'Sandbox';
+  mode.classList.toggle('big', !!inExtra);
 }
 function updateGoals() {
   const ul = $('goalList'); ul.innerHTML = '';
@@ -1502,6 +1536,24 @@ function updateGoals() {
     li.textContent = (ok ? '✓ ' : '○ ') + g.text;
     ul.appendChild(li);
   });
+}
+function buildSurvivalControls() {
+  const old = $('survCtl'); if (old) old.remove();
+  if (!S.level.survival) return;
+  const sec = $('goalList').parentElement;
+  const div = document.createElement('div');
+  div.id = 'survCtl';
+  div.style.cssText = 'margin-top:10px';
+  div.innerHTML = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--dim,#8a93b8);margin-bottom:6px">Crew</div>' +
+    '<div style="display:flex;align-items:center;gap:10px">' +
+    '<button id="engMinus" style="width:34px;height:34px;font-size:20px;line-height:1;border-radius:8px;border:1px solid var(--line,#232b4a);background:var(--panel2,#171d36);color:inherit;cursor:pointer">−</button>' +
+    '<span id="engCount" style="font-weight:600;min-width:96px;text-align:center">⛴ 3 engineers</span>' +
+    '<button id="engPlus" style="width:34px;height:34px;font-size:20px;line-height:1;border-radius:8px;border:1px solid var(--line,#232b4a);background:var(--panel2,#171d36);color:inherit;cursor:pointer">+</button>' +
+    '</div>' +
+    '<div style="font-size:12px;color:var(--dim,#8a93b8);margin-top:6px">They auto-dispatch to fix downed links — worst outage first.</div>';
+  sec.appendChild(div);
+  $('engPlus').onclick = addEngineer;
+  $('engMinus').onclick = removeEngineer;
 }
 function showLesson() {
   $('modalBody').innerHTML = S.level.lesson;
@@ -1559,11 +1611,12 @@ function startLevel(idx) {
   showInspector(null);
   recompute();
   setupSurvival();
+  buildSurvivalControls();
   if (crossScale) beginScaleZoom(!!S.level.islands && !wasIsland);
   showLesson();
 }
 
-$('btnMode').onclick = () => startLevel(S.level.sandbox ? 0 : LEVELS.length - 1);
+$('btnMode').onclick = () => startLevel((S.level.sandbox || S.level.survival) ? 0 : serverSandboxIdx());
 $('modalClose').onclick = () => $('modal').classList.remove('open');
 $('btnLesson').onclick = showLesson;
 $('btnRestart').onclick = () => startLevel(S.idx);
