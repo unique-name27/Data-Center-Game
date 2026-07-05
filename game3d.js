@@ -196,7 +196,23 @@ function newLevelState(idx) {
   L.pre.forEach(p => s.ents.push({ id: idSeq++, type: p.t, i: p.i, j: p.j, locked: true }));
   return s;
 }
+/* footprints: the big chips take a 2x2 patch, forcing you to spread out */
+const SIZE = { gpu: [2, 2], cpu: [2, 2], pswitch: [2, 2] };
+function esize(t) { return SIZE[t] || [1, 1]; }
+function entCenter(e, y) { const s = esize(e.type); return new THREE.Vector3(tX(e.i) + (s[0] - 1) / 2, y || 0, tZ(e.j) + (s[1] - 1) / 2); }
 function entAt(i, j) { return S.ents.find(e => e.i === i && e.j === j); }
+function entCovering(i, j) {
+  return S.ents.find(e => { const s = esize(e.type); return i >= e.i && i < e.i + s[0] && j >= e.j && j < e.j + s[1]; });
+}
+function fits(type, i, j, ignore) {
+  const s = esize(type);
+  if (i < 0 || j < 0 || i + s[0] > GRID_W || j + s[1] > GRID_H) return false;
+  for (let a = 0; a < s[0]; a++) for (let b = 0; b < s[1]; b++) {
+    const e = entCovering(i + a, j + b);
+    if ((e && e !== ignore) || retAt(i + a, j + b)) return false;
+  }
+  return true;
+}
 function retAt(i, j) { return S.retimers.find(r => r.i === i && r.j === j); }
 function lPath(a, b) {
   const p = [{ i: a.i, j: a.j }];
@@ -301,12 +317,13 @@ function say(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
 }
 function tryPlaceEnt(type, i, j) {
-  if (entAt(i, j) || retAt(i, j)) return say('That spot is occupied.');
+  const s = esize(type);
+  if (!fits(type, i, j)) return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
   S.ents.push({ id: idSeq++, type, i, j });
   recompute();
 }
 function tryPlaceRet(i, j) {
-  if (entAt(i, j)) return say('Retimers go on the cable run, not on a device.');
+  if (entCovering(i, j)) return say('Retimers go on the cable run, not on a device.');
   if (retAt(i, j)) return say('There is already a retimer here.');
   if (!S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j)))
     return say('Place retimers on a bare copper route. (AECs and AOCs have their own built in.)');
@@ -328,8 +345,7 @@ function tryCable(type, A, B) {
 function moveEnt(ent, i, j) {
   if (ent.locked) return say('That one is fixed — it can’t be moved.');
   if (i === ent.i && j === ent.j) return;
-  if (i < 0 || j < 0 || i >= GRID_W || j >= GRID_H) return;
-  if (entAt(i, j) || retAt(i, j)) return say('That spot is occupied.');
+  if (!fits(ent.type, i, j, ent)) return say('That spot is occupied or off the island.');
   ent.i = i; ent.j = j;
   S.cables.forEach(c => {
     if (c.a === ent.id || c.b === ent.id) {
@@ -707,15 +723,18 @@ function syncScene() {
   });
   S.ents.forEach(e => {
     let m = entMeshes.get(e.id);
+    const sz = esize(e.type);
+    const big = sz[0] > 1 || sz[1] > 1;
     if (!m) {
       m = buildPiece(e.type);
       m.userData.ent = e;
       m.traverse(o => { o.userData.entId = e.id; });
+      if (big) m.scale.setScalar(1.85);
       scene.add(m);
-      m.position.set(tX(e.i), 0, tZ(e.j));
+      m.position.copy(entCenter(e));
       entMeshes.set(e.id, m);
     }
-    m.userData.target = new THREE.Vector3(tX(e.i), 0, tZ(e.j));
+    m.userData.target = entCenter(e);
   });
   /* retimers */
   const rKey = r => r.i + ',' + r.j;
@@ -1004,14 +1023,14 @@ dom.addEventListener('pointermove', ev => {
     dom.style.cursor = 'grabbing';
     return;
   }
-  const th = t && entAt(t.i, t.j);
+  const th = t && entCovering(t.i, t.j);
   const grabbable = th && !th.locked && !CAB[S.tool] && S.tool !== 'delete';
   dom.style.cursor = grabbable ? 'grab' : (S.tool === 'select' ? 'default' : 'crosshair');
 });
 dom.addEventListener('pointerdown', ev => {
   if (ev.button !== 0) return;
   const tile = tileFromPointer(ev);
-  const grabbed = tile && entAt(tile.i, tile.j);
+  const grabbed = tile && entCovering(tile.i, tile.j);
   if (grabbed && !grabbed.locked && !CAB[S.tool] && S.tool !== 'delete') {
     drag = { ent: grabbed, moved: false, lift: false, sx: ev.clientX, sy: ev.clientY };
     if (S.tool === 'select') { S.selected = { kind: 'ent', ent: grabbed }; showInspector(S.selected); }
@@ -1020,7 +1039,7 @@ dom.addEventListener('pointerdown', ev => {
   if (CAT[S.tool]) { if (tile) tryPlaceEnt(S.tool, tile.i, tile.j); return; }
   if (S.tool === 'retimer') { if (tile) tryPlaceRet(tile.i, tile.j); return; }
   if (CAB[S.tool]) {
-    const e = tile && entAt(tile.i, tile.j);
+    const e = tile && entCovering(tile.i, tile.j);
     if (!e) { say(S.pendA ? 'Click a device to finish the cable — Esc to cancel.' : 'Click a device to start a cable.'); return; }
     if (!S.pendA) { S.pendA = e; return; }
     tryCable(S.tool, S.pendA, e);
@@ -1060,7 +1079,7 @@ window.addEventListener('keydown', ev => {
   const nudge = NUDGE[ev.key.toLowerCase()];
   if (nudge) {
     let target = (S.selected && S.selected.kind === 'ent') ? S.selected.ent
-      : (hoverTile && entAt(hoverTile.i, hoverTile.j));
+      : (hoverTile && entCovering(hoverTile.i, hoverTile.j));
     if (target) {
       ev.preventDefault();
       if (target.locked) { say('That one is fixed — it can’t be moved.'); return; }
@@ -1278,10 +1297,11 @@ function animate(ts) {
     const m = entMeshes.get(e.id);
     if (!m) return;
     if (drag && drag.lift && e === drag.ent && hoverTile) {
-      const target = new THREE.Vector3(hoverTile.x, 0.8, hoverTile.z);
+      const s = esize(e.type);
+      const target = new THREE.Vector3(tX(hoverTile.i) + (s[0] - 1) / 2, 0.8, tZ(hoverTile.j) + (s[1] - 1) / 2);
       m.position.lerp(target, Math.min(1, dt * 14));
     } else {
-      const target = m.userData.target || new THREE.Vector3(tX(e.i), 0, tZ(e.j));
+      const target = m.userData.target || entCenter(e);
       m.position.lerp(target, Math.min(1, dt * 10));
     }
     /* idle bob + fan spin for online GPUs */
@@ -1340,16 +1360,21 @@ function animate(ts) {
     if (m.userData.dead) m.material.emissiveIntensity = 0.5 + Math.abs(Math.sin(t * 6)) * 0.6;
   });
 
-  /* hover + ghost */
+  /* hover + ghost (footprint-aware) */
+  const toolSize = CAT[S.tool] ? esize(S.tool) : [1, 1];
   if (hoverTile && !drag) {
     hoverRing.visible = true;
-    hoverRing.position.set(tX(hoverTile.i), 0.02, tZ(hoverTile.j));
+    hoverRing.position.set(tX(hoverTile.i) + (toolSize[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (toolSize[1] - 1) / 2);
+    hoverRing.scale.setScalar(Math.max(toolSize[0], toolSize[1]));
   } else hoverRing.visible = false;
   if (ghost && ghostType && hoverTile && !drag) {
+    const s = esize(ghostType);
     ghost.visible = true;
-    ghost.position.set(tX(hoverTile.i), 0.02, tZ(hoverTile.j));
-    const bad = entAt(hoverTile.i, hoverTile.j) || retAt(hoverTile.i, hoverTile.j) ||
-      (ghostType === 'retimer' && !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === hoverTile.i && p.j === hoverTile.j)));
+    ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
+    ghost.scale.setScalar((s[0] > 1 || s[1] > 1) ? 1.85 : 1);
+    const bad = ghostType === 'retimer'
+      ? (entCovering(hoverTile.i, hoverTile.j) || !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === hoverTile.i && p.j === hoverTile.j)))
+      : !fits(ghostType, hoverTile.i, hoverTile.j);
     ghost.traverse(o => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(bad ? 0x881111 : 0x0a3a14); });
   } else if (ghost) ghost.visible = false;
 
@@ -1357,8 +1382,10 @@ function animate(ts) {
   if (S.selected && S.selected.kind === 'ent') {
     const m = entMeshes.get(S.selected.ent.id);
     if (m) {
+      const s = esize(S.selected.ent.type);
       selRing.visible = true;
       selRing.position.set(m.position.x, 0.05, m.position.z);
+      selRing.scale.setScalar(Math.max(s[0], s[1]));
     } else selRing.visible = false;
   } else selRing.visible = false;
 
