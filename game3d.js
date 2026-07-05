@@ -398,6 +398,28 @@ function tryCable(type, A, B) {
   S.cables.push({ id: idSeq++, type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 });
   recompute();
 }
+/* when cables reroute, any retimer that fell off its wire slides to the nearest
+   free tile on a copper route so it stays on the line and keeps working */
+function resnapRetimers() {
+  const onRoute = r => S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j));
+  const removed = [];
+  S.retimers.forEach(r => {
+    if (onRoute(r)) return;
+    let best = null, bd = 1e9;
+    S.cables.forEach(c => {
+      if (!CAB[c.type].retime) return;
+      c.path.forEach(p => {
+        if (entCovering(p.i, p.j)) return;
+        if (S.retimers.some(x => x !== r && x.i === p.i && x.j === p.j)) return;
+        const d = (p.i - r.i) * (p.i - r.i) + (p.j - r.j) * (p.j - r.j);
+        if (d < bd) { bd = d; best = p; }
+      });
+    });
+    if (best) { r.i = best.i; r.j = best.j; }
+    else removed.push(r);
+  });
+  if (removed.length) { S.retimers = S.retimers.filter(r => removed.indexOf(r) < 0); say('Removed a retimer — no copper wire left for it.'); }
+}
 function moveEnt(ent, i, j) {
   if (ent.locked) return say('That one is fixed — it can’t be moved.');
   if (i === ent.i && j === ent.j) return;
@@ -411,8 +433,7 @@ function moveEnt(ent, i, j) {
       c.pulses = [];
     }
   });
-  if (S.retimers.some(r => !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j))))
-    say('Heads up: a retimer is no longer on any copper route.');
+  resnapRetimers();
   recompute();
   if (isIsland(ent.type)) refreshIslands();
 }
