@@ -1,44 +1,64 @@
 # Data Center Tycoon — Connectivity Edition
 
-A browser game that teaches how data moves inside a data center — and why **connectivity chips** (retimers, active cables, optics) exist.
+A browser game that teaches how data actually moves inside a data center — and why **connectivity chips** (retimers, active cables, optics) exist. Built for teaching: every part explains itself in plain English with a real-world note.
 
-**Play it: https://unique-name27.github.io/Data-Center-Game/** — or just open `index.html` in any browser. No build step, no dependencies, no server required.
+## ▶ Play now
 
-**✨ 3D island edition: https://unique-name27.github.io/Data-Center-Game/3d.html** — the same lessons on cozy toon-shaded 3D islands (Three.js): rounded chunky components, tube cables with glowing data orbs, spinning GPU fans, drifting clouds, and a wooden sign pointing to the rack. Build a server on one island (Lessons 1–2), then in Lesson 3 **each island IS a server** — string AEC/AOC cables across the sea to wire the whole rack together, discovering that copper AEC can't reach the far islands and only optical AOC can. Right-drag orbits the camera.
+| Edition | Link |
+|---|---|
+| **✨ 3D island edition** (recommended) | **https://unique-name27.github.io/Data-Center-Game/3d.html** |
+| 2D edition | **https://unique-name27.github.io/Data-Center-Game/** |
+| Classic prototype (Data Center Builder) | https://unique-name27.github.io/Data-Center-Game/classic.html |
 
-The original **Data Center Builder** (baseboards, CPU/GPU/memory wiring, economy mode) is still playable at [classic.html](https://unique-name27.github.io/Data-Center-Game/classic.html).
+No install, no accounts, no build step — it runs in any modern browser. The 3D edition loads [Three.js](https://threejs.org/) from a CDN, so it needs an internet connection; the 2D edition is fully offline.
 
 ## What it teaches
 
-The campaign starts where connectivity starts — **PCIe inside the server** — then zooms out. A GPU is online only when it can reach a CPU *and* memory through healthy links (the CPU has just 4 ports, so switches matter):
+One rule runs the whole game: **a chip only works when it can reach what it needs through healthy links.** A GPU needs a CPU *and* memory; a server needs the network. The catch is physics — signals fade over distance, ports run out, and the moment you leave a circuit board every link is a real, fallible cable. That's the entire reason the connectivity-chip industry exists, and you feel it firsthand:
 
-| Level | Scale | What you build and learn |
-|---|---|---|
-| 1 — First light | Inside the server | GPU + CPU + DIMM over PCIe traces; the reach-CPU-and-memory rule |
-| 2 — The long trace | Inside the server | Signal integrity: a far riser GPU dies on bare copper; **retimer chips** rescue it |
-| 3 — Fan out | Inside the server | The CPU runs out of ports; a **PCIe switch** turns one port into eight |
-| 4 — The memory wall | Inside the server | No ports left for DIMMs; a **CXL memory controller** fans out a memory bank |
-| 5 — AEC or AOC? | Inside the server | Cabled PCIe: **AEC** (retimed copper) vs **AOC** (optical) under a power cap, plus a NIC to the outside |
-| 6 — Fill the rack | The rack | 6 servers to the ToR under 11 W: DAC, loose retimers, AEC — with AOC as the tempting trap |
-| 7 — Connect the row | The row | Leaf switches, 2:1 oversubscribed spine uplinks, DAC/AEC/optical under 30 W |
-| Sandbox | The data center | The whole floor: rows, spine pods, DCI gateway, multimode vs single-mode fiber |
+- **Signal integrity** — data pulses travel each cable and **visibly fade** as copper attenuates them. Below 30% the link dies.
+- **Retimer chips** — drop one on a copper run and it regenerates the signal back to 100%. (This is the chip category the game is really about.)
+- **AEC vs AOC** — active *electrical* cables (retimed copper: cheap, cool, short) vs active *optical* cables (light: long reach, more power, more cost, and they fail more often).
+- **Ports are a budget** — a CPU has only 4 ports, so you need a **PCIe switch** to fan out and a **CXL memory controller** to attach more memory than you have slots.
+- **You can't etch a trace across water** — the link out of a server to the rack must be a real cable (AEC/AOC), never a board trace.
+- **Capacity & congestion** — a busy server outgrows a single cable; overloaded links glow red until you bundle more or move to a fatter optic.
+- **Redundancy** — dual-home a server to two paths and a single failure can't take it down.
 
-The core teaching visual: data pulses travel along every cable and **visibly fade** as copper attenuates them. Below 30% health the link dies — unless a retimer chip on the route regenerates the signal back to 100%. Click anything for a plain-English explanation with a real-world note.
+## The 3D island edition — modes
 
-## Controls
+Each little island is a piece of the system; zoom out and connect them across a cozy toon-shaded sea. Pick any level from the dropdown.
 
-- Pick a tool in the left palette (or press `1`–`9`), then click the floor
-- Cables: click a device, then click a second device
-- Move: with the Move / inspect tool, drag any device to a new spot — its cables re-route automatically
-- `Esc` cancels · `Del` removes the selection · Remove tool refunds 50%
-- Move / inspect tool: click any device or cable to see its status and explanation
+| Mode | What you do |
+|---|---|
+| **Lesson 1 — Inside the server** | Wire GPUs + memory to the CPU with PCIe traces; rescue a stranded riser GPU with **retimer chips**. |
+| **Lesson 2 — Build the full server** | Beat the CPU's 4-port limit with a **PCIe switch** + **CXL controller**, then cable a **NIC** out to the rack (AEC/AOC only). |
+| **Lesson 3 — Connect the islands** | Every island is a whole server — string AEC/AOC cables to the core switch, discovering that copper can't reach the far islands and only optics can. |
+| **Sandbox — Inside a server** | Free build at chip scale: drop CPUs, GPUs, switches, controllers and cables. |
+| **Sandbox — Data hall** | Drop your own **server islands** and **core switches**, wire them, and watch **congestion coloring** (green → amber → red) reveal overloaded links. |
+| **Survival — Keep it alive** | A pre-built rack whose links fail over time (optics fail more than copper). **Click a broken link to dispatch an engineer boat** to repair it. Score is live **uptime %** — build redundancy to survive. |
+
+Extras: a **🌙 Space / ☀ Day** button swaps the sky for a starfield with shooting stars, and a **♪ Lofi** button plays procedurally-generated lofi hip-hop (both off until you click; the music is synthesized in code, no files).
+
+## How to play
+
+- **Place a part** — pick a tool in the left palette (or press `1`–`9`), then click the board / island.
+- **Run a cable** — click one device, then click a second device.
+- **Move a part** — drag it, or hover/select it and use the **arrow keys / WASD**. Cables re-route automatically.
+- **Inspect** — click any device or cable to read what it is and its live status.
+- **Remove** — the Remove tool, or `Del` on a selection. `Esc` cancels.
+- **3D camera** — right-drag to orbit, scroll to zoom.
+- **Survival** — click a red (downed) link to send an engineer to fix it.
 
 ## Tech
 
-- Single `index.html` + `style.css` + `game.js` — vanilla JavaScript, canvas 2D
-- Pixel-art rendering: every sprite is drawn procedurally in code; there are no image assets
-- Level progress is saved in `localStorage`
+- Vanilla JavaScript, no framework. The 2D edition is one `index.html` + `style.css` + `game.js` on a 2D canvas; the 3D edition is `3d.html` + `game3d.js` using Three.js (via CDN import map) + shared `music.js`.
+- **Everything is generated in code** — pixel-art sprites, 3D toon meshes, the lofi soundtrack. The only image assets are the original hand-made component sprites in `assets/`.
+- Level progress and preferences are saved in `localStorage`.
+
+## Run locally
+
+Clone the repo and open `index.html` (2D) or `3d.html` (3D) in a browser. For the 3D edition, serve over `http://` (e.g. `python -m http.server`) so the module + CDN imports load cleanly, and stay online for the Three.js CDN.
 
 ## History
 
-The original game, **Data Center Builder** (Phaser, part-wiring with baseboards and an economy mode), lives on at `classic.html`. Earlier prototypes are preserved in this repo's git history.
+The original **Data Center Builder** (Phaser, part-wiring with baseboards and an economy mode) lives on at `classic.html`. Earlier prototypes are preserved in this repo's git history and the archived `*.zip` files.
