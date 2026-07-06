@@ -1072,13 +1072,13 @@ function syncScene() {
 let cableRoutes = new Map();
 function nodeX(gi) { return gi - GRID_W / 2; }        // world x of vertical gridline gi (0..GRID_W)
 function nodeZ(gj) { return gj - GRID_H / 2; }        // world z of horizontal gridline gj (0..GRID_H)
-function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.12; }
+function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.2; }
 /* fan a cable's attach point out along the device edge (perpendicular to the
    direction it heads off in) so several wires on one device never share a stub */
 function attachPt(cx, cz, tx, tz, idx, n) {
   if (n <= 1) return [cx, cz];
   let dx = tx - cx, dz = tz - cz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-  const off = (idx - (n - 1) / 2) * Math.min(0.18, 0.7 / n);
+  const off = (idx - (n - 1) / 2) * Math.min(0.26, 0.95 / n);
   return [cx + (-dz) * off, cz + dx * off];
 }
 function devCorners(e) { const s = esize(e.type); return [[e.i, e.j], [e.i + s[0], e.j], [e.i, e.j + s[1]], [e.i + s[0], e.j + s[1]]]; }
@@ -1156,6 +1156,30 @@ function snapToWire(i, j) {
   for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
   return { x: best.x, z: best.z, rot: Math.atan2(tan.x, tan.z) };
 }
+/* given a ground point (cursor), find the nearest retimeable wire and the best
+   free tile on it to drop a retimer — so you can aim at the wire, not a tile. */
+function pickRetimerTile(px, pz) {
+  let bestC = null, bestP = null, bd = 0.6 * 0.6;   // must be within ~0.6 units of a wire
+  S.cables.forEach(c => {
+    if (!CAB[c.type].retime) return;
+    const pts = cableRoutes.get(c.id); if (!pts) return;
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
+    for (let k = 0; k <= 48; k++) {
+      const p = curve.getPointAt(k / 48);
+      const d = (p.x - px) * (p.x - px) + (p.z - pz) * (p.z - pz);
+      if (d < bd) { bd = d; bestC = c; bestP = p; }
+    }
+  });
+  if (!bestC) return null;
+  /* on that wire, the free path tile whose centre is nearest the point we hit */
+  let bt = null, btd = 1e9;
+  bestC.path.forEach(pt => {
+    if (entCovering(pt.i, pt.j) || retAt(pt.i, pt.j)) return;
+    const d = (tX(pt.i) - bestP.x) ** 2 + (tZ(pt.j) - bestP.z) ** 2;
+    if (d < btd) { btd = d; bt = pt; }
+  });
+  return bt ? { i: bt.i, j: bt.j } : null;
+}
 function positionRetimers() {
   S.retimers.forEach(r => {
     const mesh = retMeshes.get(r.i + ',' + r.j); if (!mesh) return;
@@ -1177,11 +1201,11 @@ function rebuildCables() {
     const segs = Math.max(8, n * 6);
     if (c.ok && !c.down) {
       /* in the data hall, colour by utilisation (congestion) instead of cable type */
-      let mat, radius = 0.055;
+      let mat, radius = 0.07;
       if (c.util !== undefined) {
         const hex = c.util > 1.0 ? 0xe05555 : c.util > 0.7 ? 0xf5c542 : 0x43d15f;
         mat = new THREE.MeshToonMaterial({ color: hex, gradientMap: gradTex, emissive: hex, emissiveIntensity: c.util > 1.0 ? 0.55 : 0.12 });
-        radius = 0.05 + Math.min(0.05, c.util * 0.035);
+        radius = 0.06 + Math.min(0.05, c.util * 0.035);
         mat.userData = { hot: c.util > 1.0 };
       } else {
         mat = toon(CAB[c.type].color);
@@ -1213,6 +1237,12 @@ function rebuildCables() {
       t2.userData.dead = true;
       cableGroup.add(t2);
     }
+    /* fat invisible hit-tube so thin wires are easy to click and to drop retimers near */
+    const pick = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, 0.16, 6, false),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    pick.userData.cableId = c.id;
+    pick.userData.pick = true;
+    cableGroup.add(pick);
   });
   scene.add(cableGroup);
   positionRetimers();
@@ -1443,7 +1473,7 @@ dom.addEventListener('pointerdown', ev => {
     return;
   }
   if (CAT[S.tool]) { if (tile) tryPlaceEnt(S.tool, tile.i, tile.j); return; }
-  if (S.tool === 'retimer') { if (tile) tryPlaceRet(tile.i, tile.j); return; }
+  if (S.tool === 'retimer') { if (tile) { const rt = pickRetimerTile(tile.x, tile.z) || tile; tryPlaceRet(rt.i, rt.j); } return; }
   if (CAB[S.tool]) {
     const e = tile && entCovering(tile.i, tile.j);
     if (!e) { say(S.pendA ? 'Click a device to finish the cable — Esc to cancel.' : 'Click a device to start a cable.'); return; }
@@ -1845,9 +1875,12 @@ function animate(ts) {
     ghost.visible = true;
     let bad;
     if (ghostType === 'retimer') {
-      /* prefit the retimer onto the wire it would snap to, so you can see
-         exactly where — and which way — it will land before you click */
-      const snap = entCovering(hoverTile.i, hoverTile.j) ? null : snapToWire(hoverTile.i, hoverTile.j);
+      /* prefit the retimer onto the NEAREST wire to the cursor (same tile the
+         click will pick), so you aim at a wire, not a tile, and see where it lands */
+      const px = hoverTile.x !== undefined ? hoverTile.x : tX(hoverTile.i);
+      const pz = hoverTile.z !== undefined ? hoverTile.z : tZ(hoverTile.j);
+      const rt = pickRetimerTile(px, pz);
+      const snap = rt ? snapToWire(rt.i, rt.j) : null;
       ghost.scale.set(1, 1, 1);
       if (snap) { ghost.position.set(snap.x, 0.05, snap.z); ghost.rotation.y = snap.rot; }
       else { ghost.position.set(tX(hoverTile.i), 0.02, tZ(hoverTile.j)); ghost.rotation.y = 0; }
@@ -2052,6 +2085,7 @@ window.G3D = {
   startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
   setSpaceMode, get spaceMode() { return spaceMode; },
   setSuite, setInterop, get suite() { return suite; }, get interop() { return interop; },
+  pickRetimerTile, snapToWire,
   recompute, dispatchEngineer, updateSurvival, get engineers() { return engineers; },
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
