@@ -125,11 +125,14 @@ const LEVELS = [
     tools: ['gpu', 'cpu', 'mem', 'trace', 'retimer'],
     pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
     goals: [
-      { text: 'Attach a DIMM to the CPU', check: s => s.stats.memsReach >= 1 },
-      { text: 'Bring a GPU online (it needs CPU + memory)', check: s => s.stats.online >= 1 },
+      { text: 'Attach a DIMM to the CPU', check: s => s.stats.memsReach >= 1,
+        hint: 'Pick the <b>Memory</b> tool and click a tile next to the CPU. Then pick <b>Trace</b>, click the CPU, then the DIMM to wire them together.' },
+      { text: 'Bring a GPU online (it needs CPU + memory)', check: s => s.stats.online >= 1,
+        hint: 'Place a <b>GPU</b> near the CPU and run a <b>Trace</b> from the CPU to it. A GPU only lights up when it can reach a CPU <i>and</i> memory.' },
       {
         text: 'Rescue the far riser GPU with retimer chips',
-        check: s => { const g = s.ents.find(e => e.locked && e.type === 'gpu'); return !!(g && g.online); }
+        check: s => { const g = s.ents.find(e => e.locked && e.type === 'gpu'); return !!(g && g.online); },
+        hint: 'Trace from the CPU toward the stranded GPU on the right — the signal fades and dies. Pick the <b>Retimer</b> tool and drop chips along that wire every couple of tiles.'
       }
     ],
     lesson: `<h2>Lesson 1 — Inside the server</h2>
@@ -144,10 +147,14 @@ const LEVELS = [
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'uplink', i: 15, j: 0 }],
     goals: [
-      { text: 'Bring 6 GPUs online', check: s => s.stats.online >= 6 },
-      { text: 'Fan out through a PCIe switch', check: s => s.stats.switchUsed },
-      { text: 'Feed the board memory through a CXL controller', check: s => s.stats.memctlUsed },
-      { text: 'Wire a NIC out to the rack uplink (AEC or AOC)', check: s => s.stats.nicUp }
+      { text: 'Bring 6 GPUs online', check: s => s.stats.online >= 6,
+        hint: 'The CPU has only 4 ports, so you can’t wire six GPUs straight to it. Place a <b>PCIe switch</b>, trace the CPU to it, then hang GPUs off the switch.' },
+      { text: 'Fan out through a PCIe switch', check: s => s.stats.switchUsed,
+        hint: 'Place the <b>PCIe switch</b>, run a <b>Trace</b> from the CPU to it, then trace your GPUs to the switch instead of the CPU.' },
+      { text: 'Feed the board memory through a CXL controller', check: s => s.stats.memctlUsed,
+        hint: 'Place a <b>CXL controller</b>, wire it to the CPU or switch, then trace <b>DIMMs</b> to the controller to add memory beyond the CPU’s slots.' },
+      { text: 'Wire a NIC out to the rack uplink (AEC or AOC)', check: s => s.stats.nicUp,
+        hint: 'Trace a <b>NIC</b> to the CPU or switch, then run an <b>AEC or AOC</b> cable (not a trace) from the NIC out to the <b>rack uplink</b> by the sign.' }
     ],
     lesson: `<h2>Lesson 2 — Build the full server</h2>
       <p>Now build a real GPU server. Six GPUs need to come online — but the <b>CPU has only 4 ports</b>, so you can’t just wire everything to it:</p>
@@ -166,8 +173,10 @@ const LEVELS = [
       { t: 'srv', i: 0, j: 1 }, { t: 'srv', i: 0, j: 7 }
     ],
     goals: [
-      { text: 'Connect the 2 near servers to the core (AEC works)', check: s => s.stats.online >= 2 },
-      { text: 'Reach the far islands with AOC — all 4 online', check: s => s.stats.online >= 4 }
+      { text: 'Connect the 2 near servers to the core (AEC works)', check: s => s.stats.online >= 2,
+        hint: 'Pick the <b>AEC</b> tool, click a near server island, then click the big <b>core</b> island in the middle to lay a cable across the water.' },
+      { text: 'Reach the far islands with AOC — all 4 online', check: s => s.stats.online >= 4,
+        hint: 'AEC fades out over the long gap to the far islands — switch to the <b>AOC</b> tool (optical) and cable those two to the core.' }
     ],
     lesson: `<h2>Lesson 3 — Connect the islands</h2>
       <p>Look around — <b>each little island is a whole server</b> you just built, and the big island in the middle is the rack’s <b>core switch</b>. Now wire them into one rack.</p>
@@ -1683,6 +1692,48 @@ function updateGoals() {
     ul.appendChild(li);
   });
 }
+/* ---- stuck coach: after ~1 min with no progress, pop a hint for the next goal ---- */
+let idleT = 0, coachEl = null, coachOn = false, lastSig = null;
+const STUCK_SECS = 60;
+function progressSig() {
+  const goals = S.level.goals || [];
+  const done = goals.reduce((n, g) => n + (g.check(S) ? 1 : 0), 0);
+  return S.idx + '|' + S.ents.length + '|' + S.cables.length + '|' + S.retimers.length + '|' + done;
+}
+function nextHint() {
+  const g = (S.level.goals || []).find(x => !x.check(S));
+  return g ? (g.hint || g.text) : null;
+}
+function ensureCoach() {
+  if (coachEl) return;
+  coachEl = document.createElement('div');
+  coachEl.id = 'coach';
+  coachEl.innerHTML =
+    '<button class="coachClose" title="Dismiss" aria-label="Dismiss">×</button>' +
+    '<div class="coachHead">💡 Stuck? Try this</div>' +
+    '<div class="coachText"></div>' +
+    '<button class="coachLesson">Show the lesson again</button>';
+  (document.getElementById('stage3d') || document.body).appendChild(coachEl);
+  coachEl.querySelector('.coachClose').onclick = () => { hideCoach(); idleT = 0; };
+  coachEl.querySelector('.coachLesson').onclick = () => { hideCoach(); idleT = 0; showLesson(); };
+}
+function hideCoach() { if (coachEl) coachEl.classList.remove('show'); coachOn = false; }
+function showCoach() {
+  const hint = nextHint(); if (!hint) return;
+  ensureCoach();
+  coachEl.querySelector('.coachText').innerHTML = hint;
+  coachEl.classList.add('show'); coachOn = true;
+}
+function updateCoach(dt) {
+  const modalOpen = $('modal').classList.contains('open');
+  const eligible = S.level && !S.level.sandbox && !S.level.survival && !S.done && !modalOpen;
+  if (!eligible) { hideCoach(); idleT = 0; lastSig = null; return; }
+  const sig = progressSig();
+  if (sig !== lastSig) { lastSig = sig; idleT = 0; hideCoach(); return; }  // made progress → re-arm
+  if (coachOn) return;                                                     // already nudging; wait for progress
+  idleT += dt;
+  if (idleT >= STUCK_SECS) showCoach();
+}
 function buildSurvivalControls() {
   const old = $('survCtl'); if (old) old.remove();
   if (!S.level.survival) return;
@@ -1918,6 +1969,7 @@ function animate(ts) {
   updatePulses(dt, ts);
   updateElastics();
   updateFx(dt);
+  updateCoach(dt);
   renderer.render(scene, camera);
 }
 
@@ -2086,7 +2138,7 @@ window.G3D = {
   setSpaceMode, get spaceMode() { return spaceMode; },
   setSuite, setInterop, get suite() { return suite; }, get interop() { return interop; },
   pickRetimerTile, snapToWire,
-  recompute, dispatchEngineer, updateSurvival, get engineers() { return engineers; },
+  recompute, dispatchEngineer, updateSurvival, updateCoach, get engineers() { return engineers; },
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
