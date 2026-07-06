@@ -410,12 +410,12 @@ function tryPlaceEnt(type, i, j) {
   recompute();
   if (isIsland(type)) refreshIslands();
 }
-function tryPlaceRet(i, j) {
+function tryPlaceRet(i, j, cid) {
   if (entCovering(i, j)) return say('Retimers go on the cable run, not on a device.');
   if (retAt(i, j)) return say('There is already a retimer here.');
   if (!S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j)))
     return say('Place retimers on a cable route — hover over a wire.');
-  S.retimers.push({ i, j });
+  S.retimers.push({ i, j, cid });   // cid = the wire the player aimed at, so it sits on that one
   recompute();
 }
 function portCount(e) { return S.cables.filter(c => c.a === e.id || c.b === e.id).length; }
@@ -1296,14 +1296,20 @@ function cableCurveFor(c) {
 /* where on the wire would a retimer at tile (i,j) actually sit? returns the
    snapped point + facing, or null if that tile has no bare copper route under it.
    used both to place real retimers and to prefit the placement ghost. */
-function snapToWire(i, j) {
-  const cab = S.cables.find(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j));
-  const pts = cab && cableRoutes.get(cab.id);
-  if (!pts) return null;
-  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
-  const tx = tX(i), tz = tZ(j); let best = null, bd = 1e9, tan = null;
-  for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
-  return { x: best.x, z: best.z, rot: Math.atan2(tan.x, tan.z) };
+function snapToWire(i, j, preferId) {
+  const tx = tX(i), tz = tZ(j);
+  const cables = S.cables.filter(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j) && cableRoutes.get(c.id));
+  if (!cables.length) return null;
+  /* pin to the wire the player aimed at (preferId) if it still runs here; otherwise
+     the nearest one — so a retimer dropped between side-by-side wires stays put */
+  const pref = preferId !== undefined && cables.find(c => c.id === preferId);
+  const use = pref ? [pref] : cables;
+  let best = null, bd = 1e9, tan = null;
+  use.forEach(c => {
+    const curve = new THREE.CatmullRomCurve3(cableRoutes.get(c.id), false, 'catmullrom', 0.06);
+    for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
+  });
+  return best ? { x: best.x, z: best.z, rot: Math.atan2(tan.x, tan.z) } : null;
 }
 /* given a ground point (cursor), find the nearest retimeable wire and the best
    free tile on it to drop a retimer — so you can aim at the wire, not a tile. */
@@ -1327,12 +1333,16 @@ function pickRetimerTile(px, pz) {
     const d = (tX(pt.i) - bestP.x) ** 2 + (tZ(pt.j) - bestP.z) ** 2;
     if (d < btd) { btd = d; bt = pt; }
   });
-  return bt ? { i: bt.i, j: bt.j } : null;
+  if (!bt) return null;
+  /* snap to where the retimer will actually sit on the wire the cursor is nearest,
+     so the hover ghost and the dropped chip land on the same spot on the same wire */
+  const s = snapToWire(bt.i, bt.j, bestC.id);
+  return s ? { i: bt.i, j: bt.j, x: s.x, z: s.z, rot: s.rot, cid: bestC.id } : null;
 }
 function positionRetimers() {
   S.retimers.forEach(r => {
     const mesh = retMeshes.get(r.i + ',' + r.j); if (!mesh) return;
-    const s = snapToWire(r.i, r.j);
+    const s = snapToWire(r.i, r.j, r.cid);
     if (s) { mesh.position.set(s.x, 0.05, s.z); mesh.rotation.y = s.rot; }
     else { mesh.position.set(tX(r.i), 0.05, tZ(r.j)); mesh.rotation.y = 0; }
   });
@@ -1622,7 +1632,7 @@ dom.addEventListener('pointerdown', ev => {
     return;
   }
   if (CAT[S.tool]) { if (tile) tryPlaceEnt(S.tool, tile.i, tile.j); return; }
-  if (S.tool === 'retimer') { if (tile) { const rt = pickRetimerTile(tile.x, tile.z) || tile; tryPlaceRet(rt.i, rt.j); } return; }
+  if (S.tool === 'retimer') { if (tile) { const rt = pickRetimerTile(tile.x, tile.z) || tile; tryPlaceRet(rt.i, rt.j, rt.cid); } return; }
   if (CAB[S.tool]) {
     const e = tile && entCovering(tile.i, tile.j);
     if (!e) { say(S.pendA ? 'Click a device to finish the cable — Esc to cancel.' : 'Click a device to start a cable.'); return; }
@@ -2083,11 +2093,10 @@ function animate(ts) {
       const px = hoverTile.x !== undefined ? hoverTile.x : tX(hoverTile.i);
       const pz = hoverTile.z !== undefined ? hoverTile.z : tZ(hoverTile.j);
       const rt = pickRetimerTile(px, pz);
-      const snap = rt ? snapToWire(rt.i, rt.j) : null;
       ghost.scale.set(1, 1, 1);
-      if (snap) { ghost.position.set(snap.x, 0.05, snap.z); ghost.rotation.y = snap.rot; }
+      if (rt) { ghost.position.set(rt.x, 0.05, rt.z); ghost.rotation.y = rt.rot; }
       else { ghost.position.set(tX(hoverTile.i), 0.02, tZ(hoverTile.j)); ghost.rotation.y = 0; }
-      bad = !snap;
+      bad = !rt;
     } else {
       const s = esize(ghostType);
       ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
