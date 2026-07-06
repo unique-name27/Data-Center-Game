@@ -1061,6 +1061,14 @@ let cableRoutes = new Map();
 function nodeX(gi) { return gi - GRID_W / 2; }        // world x of vertical gridline gi (0..GRID_W)
 function nodeZ(gj) { return gj - GRID_H / 2; }        // world z of horizontal gridline gj (0..GRID_H)
 function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.12; }
+/* fan a cable's attach point out along the device edge (perpendicular to the
+   direction it heads off in) so several wires on one device never share a stub */
+function attachPt(cx, cz, tx, tz, idx, n) {
+  if (n <= 1) return [cx, cz];
+  let dx = tx - cx, dz = tz - cz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+  const off = (idx - (n - 1) / 2) * Math.min(0.18, 0.7 / n);
+  return [cx + (-dz) * off, cz + dx * off];
+}
 function devCorners(e) { const s = esize(e.type); return [[e.i, e.j], [e.i + s[0], e.j], [e.i, e.j + s[1]], [e.i + s[0], e.j + s[1]]]; }
 function pickNode(dev, other) {
   const oc = entCenter(other); let best = [dev.i, dev.j], bd = 1e9;
@@ -1084,24 +1092,35 @@ function routeCables() {
       const lanes = [];
       groups[key].forEach(it => {
         let k = 0;
-        for (; ; k++) { const occ = lanes[k] || (lanes[k] = []); if (!occ.some(r => it.a < r[1] && it.b > r[0])) { occ.push([it.a, it.b]); break; } }
+        /* <=/>= (not </>) so cables that merely TOUCH at a shared junction or
+           device corner still take different lanes — otherwise their entry stubs
+           (device centre → that corner) stack exactly on top of each other. */
+        for (; ; k++) { const occ = lanes[k] || (lanes[k] = []); if (!occ.some(r => it.a <= r[1] && it.b >= r[0])) { occ.push([it.a, it.b]); break; } }
         out[it.id] = k;
       });
     });
   };
   alloc(horiz, laneH); alloc(vert, laneV);
+  /* index every cable within each device so we can fan their attach points apart */
+  const devCables = {};
+  S.cables.forEach(c => { const m = meta[c.id]; if (!m) return;
+    (devCables[m.A.id] = devCables[m.A.id] || []).push(c.id);
+    (devCables[m.B.id] = devCables[m.B.id] || []).push(c.id); });
   S.cables.forEach(c => {
     const m = meta[c.id]; if (!m) return;
     const offH = laneShift(laneH[c.id] || 0), offV = laneShift(laneV[c.id] || 0);
     const y = 0.05 + ((c.id * 13) % 4) * 0.012;
     const zLine = nodeZ(m.na.gj) + offH, xLine = nodeX(m.nb.gi) + offV;
     const A = entCenter(m.A), B = entCenter(m.B);
+    const aL = devCables[m.A.id], bL = devCables[m.B.id];
+    const pa = attachPt(A.x, A.z, nodeX(m.na.gi), nodeZ(m.na.gj), aL.indexOf(c.id), aL.length);
+    const pb = attachPt(B.x, B.z, nodeX(m.nb.gi), nodeZ(m.nb.gj), bL.indexOf(c.id), bL.length);
     const raw = [
-      new THREE.Vector3(A.x, y, A.z),
+      new THREE.Vector3(pa[0], y, pa[1]),
       new THREE.Vector3(nodeX(m.na.gi), y, zLine),
       new THREE.Vector3(xLine, y, zLine),
       new THREE.Vector3(xLine, y, nodeZ(m.nb.gj)),
-      new THREE.Vector3(B.x, y, B.z)
+      new THREE.Vector3(pb[0], y, pb[1])
     ];
     const pts = raw.filter((p, k) => k === 0 || p.distanceToSquared(raw[k - 1]) > 0.0004);
     if (pts.length < 2) pts.push(new THREE.Vector3(B.x + 0.01, y, B.z));
@@ -1533,6 +1552,7 @@ function setTool(key) {
   setGhost(CAT[key] ? key : (key === 'retimer' ? 'retimer' : null));
   const spec = CAT[key] || CAB[key] || (key === 'retimer' ? RET : null);
   if (spec) showCatalog(spec);
+  setFactTopic(spec ? key : null);
 }
 function showCatalog(spec) {
   $('infoBody').innerHTML =
@@ -1540,7 +1560,8 @@ function showCatalog(spec) {
      <p class="real"><b>Real world:</b> ${spec.real}</p>`;
 }
 function showInspector(th) {
-  if (!th) { $('infoBody').innerHTML = 'Select a tool, or click any device or cable to learn what it does.'; return; }
+  if (!th) { $('infoBody').innerHTML = 'Select a tool, or click any device or cable to learn what it does.'; setFactTopic(null); return; }
+  setFactTopic(th.kind === 'ent' ? th.ent.type : th.kind === 'cable' ? th.cable.type : 'retimer');
   if (th.kind === 'ent') {
     const spec = CAT[th.ent.type];
     let status = '';
@@ -1863,8 +1884,84 @@ const FACTS = [
   'A hyperscale data center can hold <b>hundreds of thousands</b> of GPUs, all needing to talk to each other.',
   'Every <b>port</b> is a budget: a CPU has only so many lanes to hand out — which is exactly why PCIe switches (fan-out) matter.'
 ];
-let factIdx = 0;
+/* facts relevant to the selected item — the box tailors itself to what you're holding/clicking */
+const ITEM_FACTS = {
+  gpu: [
+    'A top-end AI <b>GPU</b> reads its own memory at over 3 TB/s — like scanning 600 DVDs a second.',
+    'A rack of eight GPUs can draw 10+ kilowatts — as much as several homes.',
+    'Idle GPUs waiting on data are the most expensive waste in AI; connectivity is what keeps them fed.'
+  ],
+  cpu: [
+    'A server <b>CPU</b> exposes 128+ PCIe lanes — every one a signal-integrity battleground.',
+    'The CPU is the “root complex”: all PCIe lanes and memory channels fan out from it.',
+    'Every port is a budget — the CPU has only so many lanes, which is why switches exist.'
+  ],
+  mem: [
+    '<b>Memory</b> bandwidth is so precious a whole chip category (CXL controllers) exists just to attach more of it.',
+    '<b>HBM</b> stacks DRAM chips vertically right beside the processor for enormous bandwidth.'
+  ],
+  pswitch: [
+    'A <b>PCIe switch</b> turns one CPU port into many — that’s how one CPU hosts a dozen GPUs.',
+    'The “x” in PCIe x16 means sixteen lanes wide; a switch fans those lanes out to more devices.'
+  ],
+  memctl: [
+    'A <b>CXL memory controller</b> lets a CPU borrow terabytes of extra RAM over PCIe-style links.',
+    'When the DIMM slots run out but models keep growing, memory controllers keep the GPUs fed.'
+  ],
+  nic: [
+    'A <b>NIC</b> is the server’s door to the network — modern AI servers pack several 400–800G NICs.',
+    '<b>800G</b> is today’s top per-port speed: 800 gigabits every second down one cable.'
+  ],
+  uplink: [
+    'The <b>top-of-rack switch</b> sits up high on purpose — short cables to the servers stay cheap and healthy.',
+    'That NIC-to-rack cable is the boundary between “inside the box” and the whole data center.'
+  ],
+  srv: [
+    'Between servers there’s no circuit board — every link is a real pluggable cable (AEC or AOC).',
+    'AI clusters are planned rack by rack; every rack’s uplinks converge on the row’s switches.'
+  ],
+  core: [
+    'One modern switch chip (the kind in a rack’s core) moves <b>51.2 terabits per second</b>.',
+    'A <b>leaf-spine</b> fabric lets any server reach any other in just 3 hops, however big the hall.'
+  ],
+  trace: [
+    'A copper <b>PCB trace</b> is nearly free, but past ~30 cm at PCIe Gen6 the signal smears too much to read.',
+    'PCIe doubles its speed about every 3 years (Gen3→4→5→6) — making signal integrity ever harder.',
+    'Signal engineers read <b>“eye diagrams”</b> — the more open the eye, the healthier the trace.'
+  ],
+  aecb: [
+    'An <b>AEC</b> is copper with a retimer chip in each connector shell — the fastest-growing cable in AI.',
+    'AECs sip power and fail less than optics: copper wherever you can, light only where you must.'
+  ],
+  aocb: [
+    'An <b>AOC</b> turns your data into laser light; one optical cable can run 100+ meters.',
+    'Optics can burn more power than the switch chip itself — the reason engineers prefer copper when they can.'
+  ],
+  aec1: null, aoc1: null, dac1: null, dac2: null, aec2: null, opt: null, mmf: null, smf: null,
+  retimer: [
+    'A <b>retimer</b> recovers a smeared copper signal and retransmits it perfectly clean — health back to 100%.',
+    'The retimer market went from tiny to multi-billion-dollar as AI’s hunger for bandwidth exploded.',
+    'Retimers live on motherboards, riser cards, backplanes — and inside every AEC.'
+  ]
+};
+ITEM_FACTS.aec1 = ITEM_FACTS.aec2 = ITEM_FACTS.aecb;
+ITEM_FACTS.aoc1 = ITEM_FACTS.opt = ITEM_FACTS.mmf = ITEM_FACTS.smf = ITEM_FACTS.aocb;
+ITEM_FACTS.dac1 = ITEM_FACTS.dac2 = ITEM_FACTS.trace;
+ITEM_FACTS.tor = ITEM_FACTS.leaf = ITEM_FACTS.spine = ITEM_FACTS.spine2 = ITEM_FACTS.dci = ITEM_FACTS.core;
+ITEM_FACTS.server = ITEM_FACTS.rk = ITEM_FACTS.rw = ITEM_FACTS.srv;
+
+let factIdx = 0, factTopic = null, topicIdx = 0;
 for (let i = FACTS.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [FACTS[i], FACTS[j]] = [FACTS[j], FACTS[i]]; }
+function renderFact(html) {
+  const el = $('factBox'); if (!el) return;
+  el.style.opacity = '0';
+  setTimeout(() => { el.innerHTML = html; el.style.opacity = '1'; }, 250);
+}
+function setFactTopic(type) {
+  const arr = type && ITEM_FACTS[type];
+  if (arr && arr.length) { factTopic = type; topicIdx = 0; renderFact(arr[0]); }
+  else if (factTopic) { factTopic = null; showFact(false); }
+}
 function showFact(immediate) {
   const el = $('factBox');
   if (!el) return;
@@ -1873,12 +1970,19 @@ function showFact(immediate) {
   el.style.opacity = '0';
   setTimeout(set, 350);
 }
+function factTick() {
+  if (factTopic && ITEM_FACTS[factTopic]) {
+    const arr = ITEM_FACTS[factTopic];
+    topicIdx = (topicIdx + 1) % arr.length;
+    renderFact(arr[topicIdx]);
+  } else showFact(false);
+}
 
 /* ---------------- boot ---------------- */
 startLevel(0);
 resize();
 showFact(true);
-setInterval(() => showFact(false), 13000);
+setInterval(factTick, 13000);
 requestAnimationFrame(animate);
 
 /* space-mode toggle button */
