@@ -1933,9 +1933,14 @@ function buildLevelSelect() {
 }
 function startLevel(idx) {
   clearTimeout(advanceTimer);
-  /* leaving a server-scale build with a GPU? remember it to carry into the islands */
+  /* leaving a server-scale build with a GPU? remember the server components (not
+     board fixtures like the rack uplink) to carry into the islands */
   if (S && !S.level.islands && !S.level.inner && S.ents.some(e => e.type === 'gpu')) {
-    carriedServer = cloneBuild({ ents: S.ents, cables: S.cables, retimers: S.retimers });
+    const keep = new Set(['cpu', 'gpu', 'mem', 'pswitch', 'memctl', 'nic']);
+    const ents = S.ents.filter(e => keep.has(e.type));
+    const ids = new Set(ents.map(e => e.id));
+    const cables = S.cables.filter(c => ids.has(c.a) && ids.has(c.b));
+    carriedServer = cloneBuild({ ents, cables, retimers: S.retimers });
   }
   islandEdit = null; backBtn(false);
   const wasIsland = S ? !!S.level.islands : null;
