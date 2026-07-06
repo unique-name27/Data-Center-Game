@@ -32,9 +32,9 @@ Each little island is a piece of the system; zoom out and connect them across a 
 |---|---|
 | **Lesson 1 — Inside the server** | Wire GPUs + memory to the CPU with PCIe traces; rescue a stranded riser GPU with **retimer chips**. |
 | **Lesson 2 — Build the full server** | Beat the CPU's 4-port limit with a **PCIe switch** + **CXL controller**, then cable a **NIC** out to the rack (AEC/AOC only). |
-| **Lesson 3 — Connect the islands** | Every island is a whole server — string AEC/AOC cables to the core switch, discovering that copper can't reach the far islands and only optics can. |
+| **Lesson 3 — Connect the islands** | Every island is a whole server. **Scroll your mouse wheel in** on an island to dive inside and build its server (the one you built in Lesson 2 is carried in for you); an island only comes online once its server works *and* it's cabled to the core with AEC/AOC. Copper can't reach the far islands — only optics can. |
 | **Sandbox — Inside a server** | Free build at chip scale: drop CPUs, GPUs, switches, controllers and cables. |
-| **Sandbox — Data hall** | Drop your own **server islands** and **core switches**, wire them, and watch **congestion coloring** (green → amber → red) reveal overloaded links. |
+| **Sandbox — Data hall** | Drop your own **server islands** and **core switches**, scroll in to build each one, wire them, and watch **congestion coloring** (green → amber → red) reveal overloaded links. |
 | **Survival — Keep it alive** | A pre-built rack whose links fail over time (optics fail more than copper). **Click a broken link to dispatch an engineer boat** to repair it. Score is live **uptime %** — build redundancy to survive. |
 
 Two operator upgrades you can toggle on:
@@ -51,7 +51,7 @@ Extras: a **🌙 Space / ☀ Day** button swaps the sky for a starfield with sho
 - **Move a part** — drag it, or hover/select it and use the **arrow keys / WASD**. Cables re-route automatically.
 - **Inspect** — click any device or cable to read what it is and its live status.
 - **Remove** — the Remove tool, or `Del` on a selection. `Esc` cancels.
-- **3D camera** — right-drag to orbit, scroll to zoom. Switching between the server scale and the data-hall scale animates a smooth zoom; in the sandboxes you can **keep scrolling past the zoom limit** to glide out to the data hall (or back down into a server).
+- **3D camera** — right-drag to orbit, scroll to zoom. **Keep scrolling in** on a server island to dive inside and build it; **keep scrolling out** to pull back to the data hall (or use the *Back to the data hall* button). In the sandboxes you can also over-scroll to glide between the server scale and the data hall.
 - **Survival** — click a red (downed) link to send an engineer to fix it.
 
 ## Tech

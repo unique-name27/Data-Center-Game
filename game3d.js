@@ -175,13 +175,14 @@ const LEVELS = [
       { t: 'srv', i: 0, j: 1 }, { t: 'srv', i: 0, j: 7 }
     ],
     goals: [
-      { text: 'Connect the 2 near servers to the core (AEC works)', check: s => s.stats.online >= 2,
-        hint: 'Pick the <b>AEC</b> tool, click a near server island, then click the big <b>core</b> island in the middle to lay a cable across the water.' },
+      { text: 'Build + connect the 2 near servers to the core (AEC works)', check: s => s.stats.online >= 2,
+        hint: 'Each island needs a working server first — <b>scroll in</b> on an island to build one (CPU + GPU + DIMM, traced together), scroll back out, then <b>AEC</b>-cable it to the core.' },
       { text: 'Reach the far islands with AOC — all 4 online', check: s => s.stats.online >= 4,
-        hint: 'AEC fades out over the long gap to the far islands — switch to the <b>AOC</b> tool (optical) and cable those two to the core.' }
+        hint: 'Build every island (scroll in), then reach the far two with the <b>AOC</b> tool — AEC fades out over the long water gap.' }
     ],
     lesson: `<h2>Lesson 3 — Connect the islands</h2>
-      <p>Look around — <b>each little island is a whole server</b> you just built, and the big island in the middle is the rack’s <b>core switch</b>. Now wire them into one rack.</p>
+      <p>Look around — <b>each little island is a whole server</b>, and the big island in the middle is the rack’s <b>core switch</b>. Now wire them into one rack.</p>
+      <p><b>Scroll your mouse wheel in</b> on an island to dive inside and build its server (the one you built earlier is already carried in). An island only comes online once its server works <i>and</i> it’s cabled to the core. Scroll back out to return to the hall.</p>
       <p>Between islands there’s only open water — <b>no board to etch a trace onto</b>. Every link is a real cable:</p>
       <p><b>AEC</b> — retimed copper. Cheap and cool, but it fades over distance (6% per tile).<br>
       <b>AOC</b> — optical. Barely fades at all (1% per tile) — the only thing that reaches the far islands.</p>
@@ -250,6 +251,11 @@ function newLevelState(idx) {
     const A = s.ents[pc.a], B = s.ents[pc.b];
     s.cables.push({ id: idSeq++, type: pc.type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0, down: false });
   });
+  /* carry your last server build forward: it becomes the first island's server */
+  if (L.islands && !L.survival && carriedServer) {
+    const firstSrv = s.ents.find(e => e.type === 'srv');
+    if (firstSrv) firstSrv.inner = cloneBuild(carriedServer);
+  }
   if (L.survival) s.survival = { time: 0, upNum: 0, upDen: 0, sinceFail: 6, ended: false };
   return s;
 }
@@ -325,7 +331,10 @@ function recompute() {
     S.ents.forEach(e => {
       if (e.type !== 'srv') { e.online = false; return; }
       const links = healthy.filter(c => (c.a === e.id || c.b === e.id) && cores.some(k => k.id === (c.a === e.id ? c.b : c.a)));
-      e.online = links.length > 0;
+      /* an island only comes online if it's cabled to a core AND its own server works
+         (built by scrolling in). Survival islands are abstract and skip this gate. */
+      e.working = S.level.survival ? true : serverWorks(e.inner);
+      e.online = links.length > 0 && e.working;
       if (!e.online) { e.congested = false; return; }
       online++; tput += CAT.srv.tput;
       if (S.level.survival) { e.congested = false; return; }   /* survival uses green/red = up/down, not congestion */
@@ -518,27 +527,127 @@ function beginScaleZoom(zoomOut) {
   camTween = { t: 0, dur: 1.1, from: start.clone(), to: CAM_HOME.clone() };
   controls.enabled = false;
 }
-/* over-scroll at the zoom limit hops between the two sandboxes */
+/* over-scroll at the zoom limit: drill into / out of islands, or hop sandboxes */
 let overscroll = 0, lastWheel = 0;
+let islandEdit = null;      // { outerS, ent } while zoomed inside one island's server
+let carriedServer = null;   // your last server build, carried forward into the island lessons
 function serverSandboxIdx() { return LEVELS.findIndex(L => L.sandbox && !L.islands); }
 function dataHallIdx() { return LEVELS.findIndex(L => L.title.indexOf('Data hall') >= 0); }
+const SERVER_TOOLS = ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'retimer'];
+
+/* deep-copy a {ents,cables,retimers} build with fresh ids */
+function cloneBuild(b) {
+  if (!b) return { ents: [], cables: [], retimers: [] };
+  const map = new Map();
+  const ents = b.ents.map(e => { const ne = { id: idSeq++, type: e.type, i: e.i, j: e.j }; map.set(e.id, ne.id); return ne; });
+  const cables = b.cables.map(c => ({ id: idSeq++, type: c.type, a: map.get(c.a), b: map.get(c.b), path: c.path.map(p => ({ i: p.i, j: p.j })), pulses: [], nextPulse: 0 }));
+  const retimers = b.retimers.map(r => ({ i: r.i, j: r.j }));
+  return { ents, cables, retimers };
+}
+/* how many GPUs come online inside a stand-alone server build (pure, no side effects) */
+function serverOnlineCount(build) {
+  if (!build || !build.ents.length) return 0;
+  const rets = build.retimers || [];
+  const ok = c => {
+    const loss = CAB[c.type].loss; let h = 100;
+    for (let k = 1; k < c.path.length; k++) { h -= loss; if (h < FAIL) return false; if (CAB[c.type].retime && rets.some(r => r.i === c.path[k].i && r.j === c.path[k].j)) h = 100; }
+    return true;
+  };
+  const adj = new Map(); build.ents.forEach(e => adj.set(e.id, []));
+  build.cables.filter(ok).forEach(c => { if (adj.has(c.a) && adj.has(c.b)) { adj.get(c.a).push(c.b); adj.get(c.b).push(c.a); } });
+  const reach = start => { const seen = new Set([start.id]), q = [start.id], types = new Set(); while (q.length) { const id = q.pop(); const e = build.ents.find(x => x.id === id); if (e && e.id !== start.id) types.add(e.type); (adj.get(id) || []).forEach(n => { if (!seen.has(n)) { seen.add(n); q.push(n); } }); } return types; };
+  let n = 0;
+  build.ents.forEach(e => { if (e.type === 'gpu') { const t = reach(e); if (t.has('cpu') && t.has('mem')) n++; } });
+  return n;
+}
+function serverWorks(build) { return serverOnlineCount(build) >= 1; }
+function nearestServerIsland() {
+  let best = null, bd = 1e9;
+  S.ents.forEach(e => { if (e.type !== 'srv') return; const dx = tX(e.i) - controls.target.x, dz = tZ(e.j) - controls.target.z; const d = dx * dx + dz * dz; if (d < bd) { bd = d; best = e; } });
+  return best;
+}
+let backBtnEl = null;
+function backBtn(show) {
+  if (!backBtnEl) {
+    backBtnEl = document.createElement('button');
+    backBtnEl.id = 'backHall';
+    backBtnEl.textContent = '↖ Back to the data hall';
+    (document.getElementById('stage3d') || document.body).appendChild(backBtnEl);
+    backBtnEl.onclick = () => exitIsland();
+  }
+  backBtnEl.style.display = show ? '' : 'none';
+}
+function enterIsland(ent) {
+  if (islandEdit || !ent || ent.type !== 'srv') return;
+  const inner = ent.inner || (ent.inner = { ents: [], cables: [], retimers: [] });
+  islandEdit = { outerS: S, ent };
+  const L = { title: 'Inside a server — build it, then scroll out', tools: SERVER_TOOLS, islands: false, sandbox: true, inner: true, pre: [],
+    goals: [{ text: 'Build a working server — bring one GPU online', check: s => s.stats.online >= 1,
+      hint: 'Place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b>, then <b>Trace</b> them together. When a GPU lights up, scroll out to connect this island.' }] };
+  S = { idx: islandEdit.outerS.idx, level: L, ents: inner.ents, cables: inner.cables, retimers: inner.retimers,
+    tool: 'select', pendA: null, selected: null, done: false,
+    stats: { online: 0, tput: 0, watts: 0, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false } };
+  entMeshes.forEach(m => scene.remove(m)); entMeshes.clear();
+  retMeshes.forEach(m => scene.remove(m)); retMeshes.clear();
+  buildWorld(L); buildToolbar(); showInspector(null); recompute();
+  beginScaleZoom(false); backBtn(true);
+}
+function exitIsland() {
+  if (!islandEdit) return;
+  const { outerS, ent } = islandEdit;
+  ent.inner = { ents: S.ents, cables: S.cables, retimers: S.retimers };
+  islandEdit = null; S = outerS;
+  entMeshes.forEach(m => scene.remove(m)); entMeshes.clear();
+  retMeshes.forEach(m => scene.remove(m)); retMeshes.clear();
+  buildWorld(S.level); buildToolbar(); showInspector(null); recompute();
+  beginScaleZoom(true); backBtn(false);
+  say(serverWorks(ent.inner) ? '✓ Server built — now cable this island to the core.' : 'This island’s server isn’t working yet — scroll back in to finish it.');
+}
 renderer.domElement.addEventListener('wheel', ev => {
-  if (!S || !S.level.sandbox || camTween) return;
+  if (!S || camTween) return;
   const now = performance.now();
   if (now - lastWheel > 450) overscroll = 0;
   lastWheel = now;
   const dist = camera.position.distanceTo(controls.target);
-  const isHall = S.level.title.indexOf('Data hall') >= 0;
-  const isServerSandbox = S.level.sandbox && !S.level.islands;
-  if (isServerSandbox && ev.deltaY > 0 && dist >= controls.maxDistance - 0.8) {
-    overscroll += ev.deltaY;
-    if (overscroll > 60) say('Keep scrolling out to zoom to the data hall…');
-    if (overscroll > 300) { overscroll = 0; startLevel(dataHallIdx()); }
-  } else if (isHall && ev.deltaY < 0 && dist <= controls.minDistance + 0.8) {
-    overscroll += -ev.deltaY;
-    if (overscroll > 60) say('Keep scrolling in to zoom into a server…');
-    if (overscroll > 300) { overscroll = 0; startLevel(serverSandboxIdx()); }
-  } else overscroll = 0;
+  const nearIn = dist <= controls.minDistance + 0.8;
+  const nearOut = dist >= controls.maxDistance - 0.8;
+  /* inside a server island → scroll OUT to return to the data hall */
+  if (islandEdit) {
+    if (ev.deltaY > 0 && nearOut) {
+      overscroll += ev.deltaY;
+      if (overscroll > 60) say('Keep scrolling out to return to the data hall…');
+      if (overscroll > 240) { overscroll = 0; exitIsland(); }
+    } else overscroll = 0;
+    return;
+  }
+  /* on an island level → scroll IN over an island to drill into its server */
+  if (S.level.islands && !S.level.survival && ev.deltaY < 0 && nearIn) {
+    const ent = nearestServerIsland();
+    if (ent) {
+      overscroll += -ev.deltaY;
+      if (overscroll > 60) say('Keep scrolling in to build this server…');
+      if (overscroll > 240) { overscroll = 0; enterIsland(ent); }
+      return;
+    }
+  }
+  /* sandbox scale hops (server sandbox ⇄ data hall) */
+  if (S.level.sandbox) {
+    const isHall = S.level.title.indexOf('Data hall') >= 0;
+    const isServerSandbox = S.level.sandbox && !S.level.islands;
+    if (isServerSandbox && ev.deltaY > 0 && nearOut) {
+      overscroll += ev.deltaY;
+      if (overscroll > 60) say('Keep scrolling out to zoom to the data hall…');
+      if (overscroll > 300) { overscroll = 0; startLevel(dataHallIdx()); }
+      return;
+    }
+    if (isHall && ev.deltaY < 0 && nearIn && !nearestServerIsland()) {
+      overscroll += -ev.deltaY;
+      if (overscroll > 60) say('Keep scrolling in to zoom into a server…');
+      if (overscroll > 300) { overscroll = 0; startLevel(serverSandboxIdx()); }
+      return;
+    }
+  }
+  overscroll = 0;
 }, { passive: true });
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0xa8d8a0, 1.0);
@@ -1824,6 +1933,11 @@ function buildLevelSelect() {
 }
 function startLevel(idx) {
   clearTimeout(advanceTimer);
+  /* leaving a server-scale build with a GPU? remember it to carry into the islands */
+  if (S && !S.level.islands && !S.level.inner && S.ents.some(e => e.type === 'gpu')) {
+    carriedServer = cloneBuild({ ents: S.ents, cables: S.cables, retimers: S.retimers });
+  }
+  islandEdit = null; backBtn(false);
   const wasIsland = S ? !!S.level.islands : null;
   const crossScale = S && (!!LEVELS[idx].islands !== wasIsland);
   FX.forEach(p => scene.remove(p.m));
@@ -2188,6 +2302,7 @@ window.G3D = {
   setSuite, setInterop, get suite() { return suite; }, get interop() { return interop; },
   pickRetimerTile, snapToWire,
   recompute, dispatchEngineer, updateSurvival, updateCoach, get engineers() { return engineers; },
+  enterIsland, exitIsland, nearestServerIsland, serverWorks, get islandEdit() { return islandEdit; }, get carriedServer() { return carriedServer; },
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
