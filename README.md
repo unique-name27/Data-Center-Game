@@ -37,6 +37,11 @@ Each little island is a piece of the system; zoom out and connect them across a 
 | **Sandbox — Data hall** | Drop your own **server islands** and **core switches**, wire them, and watch **congestion coloring** (green → amber → red) reveal overloaded links. |
 | **Survival — Keep it alive** | A pre-built rack whose links fail over time (optics fail more than copper). **Click a broken link to dispatch an engineer boat** to repair it. Score is live **uptime %** — build redundancy to survive. |
 
+Two operator upgrades you can toggle on:
+
+- **📊 Unified software suite** — fleet telemetry watches the fabric: signals hold up over **longer runs** (more reach), links **fail less often**, and engineers **repair faster**.
+- **🔬 Interop lab** — everything interoperates better: **more reach**, **more capacity per cable** (less congestion), and **steadier links** still. Stacks with the suite.
+
 Extras: a **🌙 Space / ☀ Day** button swaps the sky for a starfield with shooting stars, and a **♪ Lofi** button plays procedurally-generated lofi hip-hop (both off until you click; the music is synthesized in code, no files).
 
 ## How to play

@@ -76,13 +76,13 @@ const CAB = {
     real: 'Past ~30 cm of board copper at Gen5/Gen6, designers reach for a retimer.'
   },
   aecb: {
-    name: 'AEC (retimed copper cable)', watts: 5, loss: 6, cap: 4, color: 0x2fc4b2, retime: false,
+    name: 'AEC (retimed copper cable)', watts: 5, loss: 6, cap: 4, color: 0x2fc4b2, retime: true,
     tag: 'Copper with retimers in the plugs',
     desc: 'An Active Electrical Cable is copper with a retimer chip inside each connector shell — 6% loss per tile instead of 25%. Carries up to 4 Tb/s per cable, so a busy server needs a few in parallel.',
     real: 'Inside GPU servers, AECs carry PCIe between boards and shelves — built on the same retimer silicon you place by hand.'
   },
   aocb: {
-    name: 'AOC (active optical cable)', watts: 9, loss: 1.0, cap: 10, color: 0x4a9df0, retime: false,
+    name: 'AOC (active optical cable)', watts: 9, loss: 1.0, cap: 10, color: 0x4a9df0, retime: true,
     tag: 'Light inside the box',
     desc: 'An Active Optical Cable converts the signal to light: 1% loss per tile, reach basically unlimited, and up to 10 Tb/s down one cable — a single AOC can carry a whole server. You pay in watts.',
     real: 'AOC vs AEC is a live engineering debate: optics reach farther and carry more; copper sips power and fails less.'
@@ -94,6 +94,18 @@ const RET = {
   desc: 'A retimer recovers the clock and data from a degraded electrical signal and retransmits it perfectly clean — signal health resets to 100% at the chip. Place it on a copper route BEFORE health falls under 30%.',
   real: 'Retimers live on motherboards, riser cards, backplanes and inside AECs — a chip category that has grown into a multi-billion-dollar business alongside AI.'
 };
+/* ---- operator upgrades: a unified software suite (fleet telemetry) and an
+   interop lab. Telemetry watches the fabric so signals hold up over longer runs,
+   outages are caught earlier, and repairs go faster; the interop lab makes every
+   part play together better — more reach, more capacity, fewer failures still. ---- */
+let suite = false, interop = false;
+function lossMul()    { return (suite ? 0.70 : 1) * (interop ? 0.85 : 1); }  // lower loss = more reach
+function capMul()     { return interop ? 1.30 : 1; }                          // more Tb/s per link = less congestion
+function failGapMul() { return (suite ? 1.60 : 1) * (interop ? 1.25 : 1); }   // longer between outages
+function repairMul()  { return (suite ? 0.55 : 1) * (interop ? 0.80 : 1); }   // shorter repair time
+function boatBoost()  { return (suite ? 0.8 : 0) + (interop ? 0.5 : 0); }     // engineers travel faster
+function setSuite(on)   { suite = !!on;   recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
+function setInterop(on) { interop = !!on; recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 const ALLOWED_BOARD = {
   gpu: ['cpu', 'pswitch'],
   mem: ['cpu', 'pswitch', 'memctl'],
@@ -262,7 +274,7 @@ function lPath(a, b) {
 /* ---------------- simulation ---------------- */
 function recompute() {
   S.cables.forEach(c => {
-    const loss = CAB[c.type].loss;
+    const loss = CAB[c.type].loss * lossMul();
     let h = 100, dead = false;
     c.health = [100]; c.failAt = -1;
     for (let k = 1; k < c.path.length; k++) {
@@ -306,7 +318,7 @@ function recompute() {
       if (!e.online) { e.congested = false; return; }
       online++; tput += CAT.srv.tput;
       if (S.level.survival) { e.congested = false; return; }   /* survival uses green/red = up/down, not congestion */
-      const totalCap = links.reduce((s, c) => s + (CAB[c.type].cap || 4), 0);
+      const totalCap = links.reduce((s, c) => s + (CAB[c.type].cap || 4) * capMul(), 0);
       const util = CAT.srv.tput / totalCap;
       e.congested = util > 1.0001;
       links.forEach(c => { c.util = util; });
@@ -382,7 +394,7 @@ function tryPlaceRet(i, j) {
   if (entCovering(i, j)) return say('Retimers go on the cable run, not on a device.');
   if (retAt(i, j)) return say('There is already a retimer here.');
   if (!S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j)))
-    return say('Place retimers on a bare copper route. (AECs and AOCs have their own built in.)');
+    return say('Place retimers on a cable route — hover over a wire.');
   S.retimers.push({ i, j });
   recompute();
 }
@@ -830,7 +842,7 @@ function updateSurvival(dt, t) {
       pick.down = true; recompute();
       say('⚠ A link just went down!');
     }
-    sv.sinceFail = Math.max(2.4, 7.5 - sv.time * 0.09);
+    sv.sinceFail = Math.max(2.4, 7.5 - sv.time * 0.09) * failGapMul();
   }
   autoAssign();   /* idle engineers automatically head to downed links, worst first */
   engineers.forEach(en => {
@@ -840,8 +852,8 @@ function updateSurvival(dt, t) {
     if (en.state === 'idle') { wr.visible = false; m.rotation.y += dt * 0.15; }
     else if (en.state === 'going') {
       const tp = cableMid(en.cable); faceBoat(m, tp);
-      m.position.lerp(tp, Math.min(1, dt * 1.7));
-      if (m.position.distanceTo(tp) < 0.45) { en.state = 'fixing'; en.timer = 3; }
+      m.position.lerp(tp, Math.min(1, dt * (1.7 + boatBoost())));
+      if (m.position.distanceTo(tp) < 0.45) { en.state = 'fixing'; en.timer = 3 * repairMul(); }
     } else if (en.state === 'fixing') {
       wr.visible = true; wr.rotation.z += dt * 9;
       en.timer -= dt;
@@ -1132,18 +1144,24 @@ function cableCurveFor(c) {
   if (!pts) return new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(0.1, 0.05, 0)]);
   return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
 }
+/* where on the wire would a retimer at tile (i,j) actually sit? returns the
+   snapped point + facing, or null if that tile has no bare copper route under it.
+   used both to place real retimers and to prefit the placement ghost. */
+function snapToWire(i, j) {
+  const cab = S.cables.find(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j));
+  const pts = cab && cableRoutes.get(cab.id);
+  if (!pts) return null;
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
+  const tx = tX(i), tz = tZ(j); let best = null, bd = 1e9, tan = null;
+  for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
+  return { x: best.x, z: best.z, rot: Math.atan2(tan.x, tan.z) };
+}
 function positionRetimers() {
   S.retimers.forEach(r => {
     const mesh = retMeshes.get(r.i + ',' + r.j); if (!mesh) return;
-    const cab = S.cables.find(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j));
-    const pts = cab && cableRoutes.get(cab.id);
-    if (pts) {
-      const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
-      const tx = tX(r.i), tz = tZ(r.j); let best = null, bd = 1e9, tan = null;
-      for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
-      mesh.position.set(best.x, 0.05, best.z);
-      mesh.rotation.y = Math.atan2(tan.x, tan.z);
-    } else { mesh.position.set(tX(r.i), 0.05, tZ(r.j)); mesh.rotation.y = 0; }
+    const s = snapToWire(r.i, r.j);
+    if (s) { mesh.position.set(s.x, 0.05, s.z); mesh.rotation.y = s.rot; }
+    else { mesh.position.set(tX(r.i), 0.05, tZ(r.j)); mesh.rotation.y = 0; }
   });
 }
 function rebuildCables() {
@@ -1306,7 +1324,7 @@ function updateElastics() {
     const spec = CAB[c.type];
     const path = lPath(otherEnt, tile);
     for (let k = 1; k < path.length; k++) {
-      h -= spec.loss;
+      h -= spec.loss * lossMul();
       if (h < FAIL) { h = 0; break; }
       if (spec.retime && retAt(path[k].i, path[k].j)) h = 100;
     }
@@ -1824,13 +1842,22 @@ function animate(ts) {
     hoverRing.scale.setScalar(Math.max(toolSize[0], toolSize[1]));
   } else hoverRing.visible = false;
   if (ghost && ghostType && hoverTile && !drag) {
-    const s = esize(ghostType);
     ghost.visible = true;
-    ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
-    ghost.scale.set(...(CAT[ghostType] ? pieceScale(ghostType) : [1, 1, 1]));
-    const bad = ghostType === 'retimer'
-      ? (entCovering(hoverTile.i, hoverTile.j) || !S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === hoverTile.i && p.j === hoverTile.j)))
-      : !fits(ghostType, hoverTile.i, hoverTile.j);
+    let bad;
+    if (ghostType === 'retimer') {
+      /* prefit the retimer onto the wire it would snap to, so you can see
+         exactly where — and which way — it will land before you click */
+      const snap = entCovering(hoverTile.i, hoverTile.j) ? null : snapToWire(hoverTile.i, hoverTile.j);
+      ghost.scale.set(1, 1, 1);
+      if (snap) { ghost.position.set(snap.x, 0.05, snap.z); ghost.rotation.y = snap.rot; }
+      else { ghost.position.set(tX(hoverTile.i), 0.02, tZ(hoverTile.j)); ghost.rotation.y = 0; }
+      bad = !snap;
+    } else {
+      const s = esize(ghostType);
+      ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
+      ghost.scale.set(...pieceScale(ghostType));
+      bad = !fits(ghostType, hoverTile.i, hoverTile.j);
+    }
     ghost.traverse(o => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(bad ? 0x881111 : 0x0a3a14); });
   } else if (ghost) ghost.visible = false;
 
@@ -1998,11 +2025,33 @@ requestAnimationFrame(animate);
   upd();
 })();
 
+/* operator-upgrade toggles: unified software suite (telemetry) + interop lab */
+(function () {
+  const host = document.getElementById('hudBtns');
+  const mk = (id, onLabel, offLabel, title, get, set, lsKey, onMsg) => {
+    const b = document.createElement('button');
+    b.id = id; b.type = 'button'; b.title = title;
+    const upd = () => { b.textContent = get() ? onLabel : offLabel; b.classList.toggle('on', get()); };
+    b.onclick = () => { set(!get()); try { localStorage.setItem(lsKey, get() ? '1' : '0'); } catch (e) {} upd(); if (get()) say(onMsg); };
+    if (host) host.insertBefore(b, host.firstChild);
+    let saved = false; try { saved = localStorage.getItem(lsKey) === '1'; } catch (e) {}
+    if (saved) set(true);
+    upd();
+  };
+  mk('btnInterop', '🔬 Interop ✓', '🔬 Interop Lab',
+     'Interop lab: everything interoperates better — more reach, more capacity, fewer failures',
+     () => interop, setInterop, 'dct3d_interop', '🔬 Interop lab online — more reach, more capacity, steadier links.');
+  mk('btnSuite', '📊 Suite ✓', '📊 Software Suite',
+     'Unified software suite: fleet telemetry — longer reach, fewer outages, faster repairs',
+     () => suite, setSuite, 'dct3d_suite', '📊 Telemetry suite online — longer reach, fewer outages, faster repairs.');
+})();
+
 /* testing hooks */
 window.G3D = {
   get S() { return S; },
   startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
   setSpaceMode, get spaceMode() { return spaceMode; },
+  setSuite, setInterop, get suite() { return suite; }, get interop() { return interop; },
   recompute, dispatchEngineer, updateSurvival, get engineers() { return engineers; },
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
