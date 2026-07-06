@@ -98,12 +98,14 @@ const RET = {
    interop lab. Telemetry watches the fabric so signals hold up over longer runs,
    outages are caught earlier, and repairs go faster; the interop lab makes every
    part play together better — more reach, more capacity, fewer failures still. ---- */
-let suite = false, interop = false;
-function lossMul()    { return (suite ? 0.70 : 1) * (interop ? 0.85 : 1); }  // lower loss = more reach
-function capMul()     { return interop ? 1.30 : 1; }                          // more Tb/s per link = less congestion
-function failGapMul() { return (suite ? 1.60 : 1) * (interop ? 1.25 : 1); }   // longer between outages
-function repairMul()  { return (suite ? 0.55 : 1) * (interop ? 0.80 : 1); }   // shorter repair time
-function boatBoost()  { return (suite ? 0.8 : 0) + (interop ? 0.5 : 0); }     // engineers travel faster
+let suite = false, interop = false, upgBtns = [];
+/* the suite + interop lab are Survival-mode ops upgrades — they only take effect there */
+function upgActive()  { return !!(S && S.level && S.level.survival); }
+function lossMul()    { return upgActive() ? (suite ? 0.70 : 1) * (interop ? 0.85 : 1) : 1; }  // lower loss = more reach
+function capMul()     { return upgActive() && interop ? 1.30 : 1; }                             // more Tb/s per link = less congestion
+function failGapMul() { return (suite ? 1.60 : 1) * (interop ? 1.25 : 1); }   // longer between outages (survival-only path)
+function repairMul()  { return (suite ? 0.55 : 1) * (interop ? 0.80 : 1); }   // shorter repair time (survival-only path)
+function boatBoost()  { return (suite ? 0.8 : 0) + (interop ? 0.5 : 0); }     // engineers travel faster (survival-only path)
 function setSuite(on)   { suite = !!on;   recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 function setInterop(on) { interop = !!on; recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 const ALLOWED_BOARD = {
@@ -678,20 +680,48 @@ function buildWorld(level) {
 }
 
 const clouds = [];
-for (let k = 0; k < 4; k++) {
+for (let k = 0; k < 9; k++) {
   const cl = new THREE.Group();
-  for (let m = 0; m < 3; m++) {
-    const puff = new THREE.Mesh(new THREE.SphereGeometry(0.9 - m * 0.2, 10, 8),
+  const puffs = 3 + (k % 3);
+  const scl = 0.8 + (k % 4) * 0.22;
+  for (let m = 0; m < puffs; m++) {
+    const puff = new THREE.Mesh(new THREE.SphereGeometry((0.9 - m * 0.14) * scl, 10, 8),
       new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradTex, transparent: true, opacity: 0.92 }));
-    puff.position.set(m * 0.9 - 0.9, (m % 2) * 0.2, (m % 2) * 0.3);
+    puff.position.set((m * 0.82 - puffs * 0.4) * scl, (m % 2) * 0.2 * scl, ((m % 3) - 1) * 0.34 * scl);
     puff.scale.y = 0.6;
     cl.add(puff);
   }
-  cl.position.set(-14 + k * 9, 7 + (k % 2) * 1.5, -6 + (k % 3) * 4);
-  cl.userData.speed = 0.15 + k * 0.05;
+  cl.position.set(-22 + k * 5.4, 6.5 + (k % 3) * 1.7, -10 + (k % 4) * 4.6);
+  cl.userData.speed = 0.12 + (k % 5) * 0.05;
   scene.add(cl);
   clouds.push(cl);
 }
+
+/* extra day-time life: sailboats circling the open sea and a few birds aloft —
+   hidden in space mode alongside the clouds */
+const dayProps = [];
+function makeSailboat(angle, hue) {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 1.0), toon(0x8a5a33)); hull.position.y = 0.09;
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), toon(0x6b4a2a)); mast.position.y = 0.55;
+  const sail = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.85, 4, 1, true), toon(hue));
+  sail.position.set(0, 0.55, 0); sail.rotation.y = Math.PI / 4;
+  g.add(hull, mast, sail);
+  g.userData = { boat: true, angle, R: 15 + Math.random() * 5, spd: 0.05 + Math.random() * 0.05, dir: Math.random() < 0.5 ? 1 : -1, bob: Math.random() * Math.PI * 2 };
+  scene.add(g); dayProps.push(g); return g;
+}
+makeSailboat(0.4, 0xf2f2f2); makeSailboat(2.6, 0xf5c542); makeSailboat(4.5, 0xf06ab8);
+function makeBird() {
+  const g = new THREE.Group();
+  const wm = toon(0x2c2f3a);
+  const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.14), wm); l.position.x = -0.28;
+  const r = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.14), wm); r.position.x = 0.28;
+  g.add(l, r);
+  g.userData = { bird: true, wingL: l, wingR: r, phase: Math.random() * Math.PI * 2, spd: 1.4 + Math.random() };
+  g.position.set(-20 + Math.random() * 8, 9 + Math.random() * 3, -8 + Math.random() * 16);
+  scene.add(g); dayProps.push(g); return g;
+}
+for (let k = 0; k < 6; k++) makeBird();
 
 /* ---- space mode: starfield + shooting stars ---- */
 const starGeo = new THREE.BufferGeometry();
@@ -711,14 +741,14 @@ starfield.visible = false;
 scene.add(starfield);
 
 const shooters = [];
-for (let i = 0; i < 5; i++) {
-  const geo = new THREE.CylinderGeometry(0.05, 0.0, 3.4, 5);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+for (let i = 0; i < 10; i++) {
+  const geo = new THREE.CylinderGeometry(0.07, 0.0, 4.4, 6);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xeaf1ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
   const m = new THREE.Mesh(geo, mat);
   m.visible = false; scene.add(m);
   shooters.push({ mesh: m, life: 0, vel: new THREE.Vector3() });
 }
-let spaceMode = false, shootTimer = 1.5;
+let spaceMode = false, shootTimer = 0.6;
 function setSpaceMode(on) {
   spaceMode = on;
   scene.background = new THREE.Color(on ? 0x070912 : 0xbfe4f5);
@@ -732,6 +762,7 @@ function setSpaceMode(on) {
   hemi.groundColor.set(on ? 0x1b2340 : 0xa8d8a0);
   if (typeof ocean !== 'undefined') ocean.material.color.set(on ? 0x0c1a33 : 0x8fd9ec);
   clouds.forEach(c => c.visible = !on);
+  if (typeof dayProps !== 'undefined') dayProps.forEach(p => p.visible = !on);
 }
 function updateSpace(dt, t) {
   if (!spaceMode) { shooters.forEach(s => { if (s.mesh.visible) s.mesh.visible = false; }); return; }
@@ -745,7 +776,7 @@ function updateSpace(dt, t) {
       s.life = 1.0; s.mesh.visible = true;
       s.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), s.vel.clone().normalize());
     }
-    shootTimer = 1.6 + Math.random() * 3.5;
+    shootTimer = 0.5 + Math.random() * 1.6;
   }
   shooters.forEach(s => {
     if (!s.mesh.visible) return;
@@ -1664,6 +1695,8 @@ function updateHUD() {
   const inExtra = S.level.sandbox || S.level.survival;
   mode.textContent = inExtra ? '▶ Start campaign' : 'Sandbox';
   mode.classList.toggle('big', !!inExtra);
+  /* the suite + interop lab are Survival-only tools — only surface them there */
+  upgBtns.forEach(b => { b.style.display = S.level.survival ? '' : 'none'; });
 }
 function updateGoals() {
   const ul = $('goalList'); ul.innerHTML = '';
@@ -1961,7 +1994,22 @@ function animate(ts) {
 
   clouds.forEach(cl => {
     cl.position.x += cl.userData.speed * dt;
-    if (cl.position.x > 18) cl.position.x = -18;
+    if (cl.position.x > 24) cl.position.x = -24;
+  });
+  dayProps.forEach(p => {
+    if (!p.visible) return;
+    const u = p.userData;
+    if (u.bird) {
+      const f = Math.sin(t * 8 + u.phase) * 0.6;
+      u.wingL.rotation.z = f; u.wingR.rotation.z = -f;
+      p.position.x += u.spd * dt;
+      if (p.position.x > 20) { p.position.x = -20; p.position.z = -8 + Math.random() * 16; }
+    } else if (u.boat) {
+      u.angle += u.spd * u.dir * dt;
+      p.position.set(Math.cos(u.angle) * u.R, -1.55 + Math.sin(t * 1.4 + u.bob) * 0.05, Math.sin(u.angle) * u.R);
+      p.rotation.y = -u.angle + (u.dir > 0 ? 0 : Math.PI);
+      p.rotation.z = Math.sin(t * 1.2 + u.bob) * 0.05;
+    }
   });
 
   updateSpace(dt, t);
@@ -2122,6 +2170,7 @@ requestAnimationFrame(animate);
     let saved = false; try { saved = localStorage.getItem(lsKey) === '1'; } catch (e) {}
     if (saved) set(true);
     upd();
+    upgBtns.push(b);
   };
   mk('btnInterop', '🔬 Interop ✓', '🔬 Interop Lab',
      'Interop lab: everything interoperates better — more reach, more capacity, fewer failures',
@@ -2135,7 +2184,7 @@ requestAnimationFrame(animate);
 window.G3D = {
   get S() { return S; },
   startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
-  setSpaceMode, get spaceMode() { return spaceMode; },
+  setSpaceMode, get spaceMode() { return spaceMode; }, updateSpace,
   setSuite, setInterop, get suite() { return suite; }, get interop() { return interop; },
   pickRetimerTile, snapToWire,
   recompute, dispatchEngineer, updateSurvival, updateCoach, get engineers() { return engineers; },
