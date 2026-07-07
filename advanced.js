@@ -862,23 +862,42 @@ function makeBird() {
 }
 for (let k = 0; k < 6; k++) makeBird();
 
-/* ---- little workers: ambient hard-hat crew that wander every scale ---- */
-const WORK_HUES = [0x3a7bd5, 0xe0662e, 0x2fa84f, 0x8e44ad, 0xd4a017, 0x16a3b0, 0xd23f6f];
-function buildWorker(hue) {
+/* ---- little critters: a menagerie of toon animals that wander every scale ---- */
+const ANIMAL_KINDS = [
+  { name: 'cat',    body: 0x8a8f98, ear: 'point', tail: 'thin' },
+  { name: 'dog',    body: 0xc8934a, ear: 'flop',  tail: 'thin' },
+  { name: 'fox',    body: 0xe0662e, ear: 'point', tail: 'bushy' },
+  { name: 'pig',    body: 0xf2a3b3, ear: 'point', tail: 'curl', snout: true },
+  { name: 'rabbit', body: 0xd8d2c8, ear: 'long',  tail: 'puff' },
+  { name: 'duck',   body: 0xf5d642, ear: 'none',  tail: 'thin', beak: true, biped: true }
+];
+function buildAnimal(i) {
+  const k = ANIMAL_KINDS[i % ANIMAL_KINDS.length];
   const g = new THREE.Group();
-  const torso = rbox(0.14, 0.22, 0.1, hue, 0.04); torso.position.y = 0.2;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), toon(0xffcf9e)); head.position.y = 0.37;
-  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), toon(0xffd23f)); hat.position.y = 0.39;
-  const legL = rbox(0.045, 0.16, 0.05, 0x2a2f3a, 0.02); legL.position.set(-0.04, 0.08, 0);
-  const legR = rbox(0.045, 0.16, 0.05, 0x2a2f3a, 0.02); legR.position.set(0.04, 0.08, 0);
-  g.add(torso, head, hat, legL, legR);
+  const col = k.body, mat = toon(col);
+  const body = rbox(0.32, 0.18, 0.2, col, 0.08); body.position.set(0, 0.17, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), mat); head.position.set(0, 0.27, 0.17);
+  g.add(body, head);
+  if (k.ear === 'point') [-1, 1].forEach(s => { const e = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.11, 6), mat); e.position.set(s * 0.06, 0.38, 0.16); g.add(e); });
+  else if (k.ear === 'long') [-1, 1].forEach(s => { const e = rbox(0.05, 0.19, 0.04, col, 0.02); e.position.set(s * 0.05, 0.44, 0.15); g.add(e); });
+  else if (k.ear === 'flop') [-1, 1].forEach(s => { const e = rbox(0.06, 0.13, 0.04, 0x6b4a2a, 0.02); e.position.set(s * 0.11, 0.3, 0.17); e.rotation.z = s * 0.5; g.add(e); });
+  if (k.snout) { const sn = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.05, 8), toon(0xe58aa0)); sn.rotation.x = Math.PI / 2; sn.position.set(0, 0.25, 0.29); g.add(sn); }
+  if (k.beak) { const bk = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.11, 7), toon(0xe8912e)); bk.rotation.x = Math.PI / 2; bk.position.set(0, 0.25, 0.31); g.add(bk); }
+  [-1, 1].forEach(s => { const ey = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), toon(0x141414)); ey.position.set(s * 0.05, 0.3, 0.27); g.add(ey); });
+  if (k.tail === 'bushy' || k.tail === 'puff') { const tl = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), toon(k.tail === 'puff' ? 0xffffff : col)); tl.position.set(0, 0.22, -0.2); g.add(tl); }
+  else if (k.tail === 'thin') { const tl = rbox(0.04, 0.04, 0.16, col, 0.02); tl.position.set(0, 0.26, -0.2); tl.rotation.x = -0.5; g.add(tl); }
+  else if (k.tail === 'curl') { const tl = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.016, 6, 10), mat); tl.position.set(0, 0.22, -0.21); g.add(tl); }
+  const mkLeg = (x, z) => { const l = rbox(0.05, 0.12, 0.05, col, 0.02); l.position.set(x, 0.06, z); g.add(l); return l; };
+  let legL, legR;
+  if (k.biped) { legL = mkLeg(-0.06, 0.04); legR = mkLeg(0.06, 0.04); }
+  else { legL = mkLeg(-0.1, 0.11); legR = mkLeg(0.1, 0.11); mkLeg(-0.1, -0.1); mkLeg(0.1, -0.1); }
   g.userData = { legL, legR };
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
 let workers = [], workerGen = null, workersOn = true;
 for (let k = 0; k < 7; k++) {
-  const mesh = buildWorker(WORK_HUES[k % WORK_HUES.length]);
+  const mesh = buildAnimal(k);
   mesh.visible = false; scene.add(mesh);
   workers.push({ mesh, x: 0, z: 0, y: 0, tx: 0, tz: 0, spd: 0.45 + Math.random() * 0.5, phase: Math.random() * 6.28, pause: 0 });
 }
@@ -2406,8 +2425,8 @@ requestAnimationFrame(animate);
 /* little-workers (crew) toggle */
 (function () {
   const b = document.createElement('button');
-  b.id = 'btnCrew'; b.type = 'button'; b.title = 'Show / hide the little workers';
-  const upd = () => { b.textContent = workersOn ? '🧑 Crew' : '🧑 Crew off'; b.classList.toggle('on', workersOn); };
+  b.id = 'btnCrew'; b.type = 'button'; b.title = 'Show / hide the little critters';
+  const upd = () => { b.textContent = workersOn ? '🐾 Critters' : '🐾 Critters off'; b.classList.toggle('on', workersOn); };
   b.onclick = () => { workersOn = !workersOn; try { localStorage.setItem('dct3d_crew', workersOn ? '1' : '0'); } catch (e) {} placeWorkers(); upd(); };
   const host = document.getElementById('hudBtns');
   if (host) host.insertBefore(b, host.firstChild);
