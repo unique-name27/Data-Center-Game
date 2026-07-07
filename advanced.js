@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
 /* Data Center Tycoon 3D — Connectivity Edition
    Cozy toon-shaded diorama: build a GPU server on a little green island.
@@ -536,6 +537,33 @@ controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
+/* ---- first-person mode: walk the floor with WASD + mouse look ---- */
+const fpControls = new PointerLockControls(camera, renderer.domElement);
+let fpMode = false; const fpKeys = {};
+function enterFP() {
+  if (fpMode) return;
+  fpMode = true; controls.enabled = false; camTween = null;
+  camera.fov = 68; camera.updateProjectionMatrix();
+  camera.position.set(0, 1.35, 6); camera.lookAt(0, 1.35, 0);
+  placeWorkers();
+  fpControls.lock();
+  const b = document.getElementById('btnFP'); if (b) { b.textContent = '⤺ Exit'; b.classList.add('on'); }
+  say('First person — WASD to walk, mouse to look, Esc to exit');
+}
+function exitFP() {
+  if (!fpMode) return;
+  fpMode = false; controls.enabled = true;
+  if (fpControls.isLocked) fpControls.unlock();
+  camera.fov = 38; camera.updateProjectionMatrix();
+  camera.position.copy(CAM_HOME); camera.lookAt(CAM_TARGET);
+  controls.target.copy(CAM_TARGET); controls.update();
+  placeWorkers();
+  const b = document.getElementById('btnFP'); if (b) { b.textContent = '🧍 Walk'; b.classList.remove('on'); }
+}
+fpControls.addEventListener('unlock', () => { if (fpMode) exitFP(); });
+addEventListener('keydown', e => { fpKeys[e.code] = true; if (fpMode && e.code === 'Escape') exitFP(); });
+addEventListener('keyup', e => { fpKeys[e.code] = false; });
+
 /* ---- smooth scale transitions (zoom between server and data hall) ---- */
 const CAM_HOME = new THREE.Vector3(0, 14.5, 12.5);
 const CAM_TARGET = new THREE.Vector3(0, 0, 0.6);
@@ -609,7 +637,7 @@ function enterIsland(ent) {
   entMeshes.forEach(m => scene.remove(m)); entMeshes.clear();
   retMeshes.forEach(m => scene.remove(m)); retMeshes.clear();
   buildWorld(L); buildToolbar(); showInspector(null); recompute();
-  beginScaleZoom(false); backBtn(true);
+  beginScaleZoom(false); backBtn(true); placeWorkers();
 }
 function exitIsland() {
   if (!islandEdit) return;
@@ -619,7 +647,7 @@ function exitIsland() {
   entMeshes.forEach(m => scene.remove(m)); entMeshes.clear();
   retMeshes.forEach(m => scene.remove(m)); retMeshes.clear();
   buildWorld(S.level); buildToolbar(); showInspector(null); recompute();
-  beginScaleZoom(true); backBtn(false);
+  beginScaleZoom(true); backBtn(false); placeWorkers();
   say(serverWorks(ent.inner) ? '✓ Server built — now cable this island to the core.' : 'This island’s server isn’t working yet — scroll back in to finish it.');
 }
 renderer.domElement.addEventListener('wheel', ev => {
@@ -833,6 +861,68 @@ function makeBird() {
   scene.add(g); dayProps.push(g); return g;
 }
 for (let k = 0; k < 6; k++) makeBird();
+
+/* ---- little workers: ambient hard-hat crew that wander every scale ---- */
+const WORK_HUES = [0x3a7bd5, 0xe0662e, 0x2fa84f, 0x8e44ad, 0xd4a017, 0x16a3b0, 0xd23f6f];
+function buildWorker(hue) {
+  const g = new THREE.Group();
+  const torso = rbox(0.14, 0.22, 0.1, hue, 0.04); torso.position.y = 0.2;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), toon(0xffcf9e)); head.position.y = 0.37;
+  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), toon(0xffd23f)); hat.position.y = 0.39;
+  const legL = rbox(0.045, 0.16, 0.05, 0x2a2f3a, 0.02); legL.position.set(-0.04, 0.08, 0);
+  const legR = rbox(0.045, 0.16, 0.05, 0x2a2f3a, 0.02); legR.position.set(0.04, 0.08, 0);
+  g.add(torso, head, hat, legL, legR);
+  g.userData = { legL, legR };
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+let workers = [], workerGen = null, workersOn = true;
+for (let k = 0; k < 7; k++) {
+  const mesh = buildWorker(WORK_HUES[k % WORK_HUES.length]);
+  mesh.visible = false; scene.add(mesh);
+  workers.push({ mesh, x: 0, z: 0, y: 0, tx: 0, tz: 0, spd: 0.45 + Math.random() * 0.5, phase: Math.random() * 6.28, pause: 0 });
+}
+/* pick a random ground point + scale for the current view: on a chip board they
+   wander the grid; in the hall they mill about on the islands */
+function workerSpot() {
+  if (islandEdit || !S.level.islands) {
+    const w = GRID_W / 2 - 0.6, h = GRID_H / 2 - 0.6;
+    return { x: (Math.random() * 2 - 1) * w, z: (Math.random() * 2 - 1) * h, y: 0.01, s: 0.5 };
+  }
+  const isl = S.ents.filter(e => e.type === 'srv' || e.type === 'core');
+  const e = isl.length ? isl[Math.floor(Math.random() * isl.length)] : { i: 8, j: 4 };
+  const rad = e.type === 'core' ? 1.2 : 0.8;
+  return { x: tX(e.i) + (Math.random() * 2 - 1) * rad, z: tZ(e.j) + (Math.random() * 2 - 1) * rad, y: 0.02, s: 0.9 };
+}
+function placeWorkers() {
+  workerGen = workerSpot;
+  const chip = islandEdit || !S.level.islands;
+  const islandCount = S.ents.filter(e => e.type === 'srv' || e.type === 'core').length;
+  const showN = chip ? 6 : Math.max(2, Math.min(7, islandCount * 2));
+  workers.forEach((wk, i) => {
+    const show = workersOn && !fpMode && i < showN;
+    wk.mesh.visible = show;
+    if (!show) return;
+    const p = workerSpot(); wk.x = p.x; wk.z = p.z; wk.y = p.y;
+    const t = workerSpot(); wk.tx = t.x; wk.tz = t.z; wk.pause = Math.random() * 1.5;
+    wk.mesh.position.set(wk.x, wk.y, wk.z);
+    wk.mesh.scale.setScalar(p.s);
+  });
+}
+function updateWorkers(dt, t) {
+  workers.forEach(wk => {
+    if (!wk.mesh.visible) return;
+    if (wk.pause > 0) { wk.pause -= dt; wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 3 + wk.phase)) * 0.008; return; }
+    const dx = wk.tx - wk.x, dz = wk.tz - wk.z, d = Math.hypot(dx, dz);
+    if (d < 0.12) { wk.pause = 0.6 + Math.random() * 1.8; const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; return; }
+    const step = Math.min(d, wk.spd * dt);
+    wk.x += dx / d * step; wk.z += dz / d * step;
+    wk.mesh.position.set(wk.x, wk.y + Math.abs(Math.sin(t * 9 + wk.phase)) * 0.01, wk.z);
+    wk.mesh.rotation.y = Math.atan2(dx, dz);
+    const sw = Math.sin(t * 9 + wk.phase) * 0.5;
+    wk.mesh.userData.legL.rotation.x = sw; wk.mesh.userData.legR.rotation.x = -sw;
+  });
+}
 
 /* ---- space mode: starfield + shooting stars ---- */
 const starGeo = new THREE.BufferGeometry();
@@ -1625,7 +1715,7 @@ dom.addEventListener('pointermove', ev => {
   dom.style.cursor = grabbable ? 'grab' : (S.tool === 'select' ? 'default' : 'crosshair');
 });
 dom.addEventListener('pointerdown', ev => {
-  if (ev.button !== 0) return;
+  if (ev.button !== 0 || fpMode) return;
   const tile = tileFromPointer(ev);
   const grabbed = tile && entCovering(tile.i, tile.j);
   if (grabbed && !grabbed.locked && !CAB[S.tool] && S.tool !== 'delete') {
@@ -1670,6 +1760,7 @@ const NUDGE = {
   w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
 };
 window.addEventListener('keydown', ev => {
+  if (fpMode) return;   // WASD/arrows drive the first-person camera, not components
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (ev.key === 'Escape') { drag = null; S.pendA = null; setTool('select'); rebuildCables(); elasticGroup.clear(); }
@@ -1983,6 +2074,7 @@ function startLevel(idx) {
   buildSurvivalControls();
   if (crossScale) beginScaleZoom(!!S.level.islands && !wasIsland);
   showLesson();
+  placeWorkers();
   /* the campaign drops you straight onto your first server's board — so there's
      always something to build the instant you arrive; scroll out to reach the hall */
   if (S.level.campaign) {
@@ -2013,7 +2105,18 @@ function animate(ts) {
   const t = ts / 1000;
   const dt = Math.max(0.001, Math.min(0.05, t - lastT || 0.016));
   lastT = t;
-  if (camTween) {
+  if (fpMode) {
+    if (fpControls.isLocked) {
+      const spd = (fpKeys['ShiftLeft'] || fpKeys['ShiftRight'] ? 7 : 3.5) * dt;
+      if (fpKeys['KeyW'] || fpKeys['ArrowUp']) fpControls.moveForward(spd);
+      if (fpKeys['KeyS'] || fpKeys['ArrowDown']) fpControls.moveForward(-spd);
+      if (fpKeys['KeyA'] || fpKeys['ArrowLeft']) fpControls.moveRight(-spd);
+      if (fpKeys['KeyD'] || fpKeys['ArrowRight']) fpControls.moveRight(spd);
+    }
+    camera.position.y = 1.35;
+    camera.position.x = Math.max(-26, Math.min(26, camera.position.x));
+    camera.position.z = Math.max(-26, Math.min(26, camera.position.z));
+  } else if (camTween) {
     camTween.t += dt / camTween.dur;
     const x = Math.min(1, camTween.t);
     const k = x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;  // easeInOutQuad
@@ -2023,6 +2126,7 @@ function animate(ts) {
   } else {
     controls.update();
   }
+  updateWorkers(dt, t);
 
   /* smooth entity motion + drag follow */
   S.ents.forEach(e => {
@@ -2289,6 +2393,28 @@ showFact(true);
 setInterval(factTick, 13000);
 requestAnimationFrame(animate);
 
+/* first-person "walk the floor" button */
+(function () {
+  const b = document.createElement('button');
+  b.id = 'btnFP'; b.type = 'button'; b.title = 'Walk the floor (first person)';
+  b.textContent = '🧍 Walk';
+  b.onclick = () => { fpMode ? exitFP() : enterFP(); };
+  const host = document.getElementById('hudBtns');
+  if (host) host.insertBefore(b, host.firstChild);
+})();
+
+/* little-workers (crew) toggle */
+(function () {
+  const b = document.createElement('button');
+  b.id = 'btnCrew'; b.type = 'button'; b.title = 'Show / hide the little workers';
+  const upd = () => { b.textContent = workersOn ? '🧑 Crew' : '🧑 Crew off'; b.classList.toggle('on', workersOn); };
+  b.onclick = () => { workersOn = !workersOn; try { localStorage.setItem('dct3d_crew', workersOn ? '1' : '0'); } catch (e) {} placeWorkers(); upd(); };
+  const host = document.getElementById('hudBtns');
+  if (host) host.insertBefore(b, host.firstChild);
+  try { if (localStorage.getItem('dct3d_crew') === '0') workersOn = false; } catch (e) {}
+  upd();
+})();
+
 /* space-mode toggle button */
 (function () {
   const b = document.createElement('button');
@@ -2333,6 +2459,7 @@ window.G3D = {
   pickRetimerTile, snapToWire,
   recompute, dispatchEngineer, updateSurvival, updateCoach, get engineers() { return engineers; },
   enterIsland, exitIsland, nearestServerIsland, serverWorks, get islandEdit() { return islandEdit; }, get carriedServer() { return carriedServer; },
+  enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
