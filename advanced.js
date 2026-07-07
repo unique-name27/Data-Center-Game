@@ -1382,25 +1382,35 @@ const MINI_COL = { cpu: 0x3b6ccf, gpu: 0x57e389, mem: 0x2fb36a, pswitch: 0xf5c54
 function renderMiniServers() {
   scene.remove(miniGroup); miniGroup = new THREE.Group(); scene.add(miniGroup);
   if (!S.level.islands || islandEdit) return;
-  const scale = 0.14, y = 0.12;
+  const scale = 0.14;
   const lp = (i, j, sz) => [(tX(i) + (sz[0] - 1) / 2) * scale, (tZ(j) + (sz[1] - 1) / 2) * scale];
   S.ents.forEach(srv => {
     if (srv.type !== 'srv' || !srv.inner) return;
-    const cx = tX(srv.i), cz = tZ(srv.j);
+    /* one group per island, positioned at its centre — we scale this group with
+       the camera zoom so the components grow as you zoom in, shrink as you zoom out */
+    const grp = new THREE.Group(); grp.position.set(tX(srv.i), 0.12, tZ(srv.j));
     (srv.inner.ents || []).forEach(ie => {
       const sz = esize(ie.type);
       const box = new THREE.Mesh(new THREE.BoxGeometry(0.8 * scale * (sz[0] > 1 ? 1.9 : 1), 0.08, 0.8 * scale * (sz[1] > 1 ? 1.9 : 1)), toon(MINI_COL[ie.type] || 0x9aa4b0));
-      const p = lp(ie.i, ie.j, sz); box.position.set(cx + p[0], y, cz + p[1]); box.castShadow = true;
-      miniGroup.add(box);
+      const p = lp(ie.i, ie.j, sz); box.position.set(p[0], 0, p[1]); box.castShadow = true;
+      grp.add(box);
     });
     (srv.inner.cables || []).forEach(c => {
       const A = srv.inner.ents.find(e => e.id === c.a), B = srv.inner.ents.find(e => e.id === c.b);
       if (!A || !B) return;
       const a = lp(A.i, A.j, esize(A.type)), b = lp(B.i, B.j, esize(B.type));
-      const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(cx + a[0], y - 0.02, cz + a[1]), new THREE.Vector3(cx + b[0], y - 0.02, cz + b[1])]);
-      miniGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xd9a326, transparent: true, opacity: 0.85 })));
+      const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a[0], -0.02, a[1]), new THREE.Vector3(b[0], -0.02, b[1])]);
+      grp.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xd9a326, transparent: true, opacity: 0.85 })));
     });
+    miniGroup.add(grp);
   });
+}
+/* grow the mini-components as the camera dollies in, shrink as it pulls out */
+function scaleMiniServers() {
+  if (!miniGroup.children.length) return;
+  const dist = camera.position.distanceTo(controls.target);
+  const k = Math.max(1, Math.min(3, 3 - (dist - 8) / (26 - 8) * 2));   // ~3x zoomed in, 1x zoomed out
+  miniGroup.children.forEach(g => g.scale.setScalar(k));
 }
 function syncScene() {
   /* entities */
@@ -2317,6 +2327,7 @@ function animate(ts) {
     controls.update();
   }
   updateWorkers(dt, t);
+  scaleMiniServers();
 
   /* smooth entity motion + drag follow */
   S.ents.forEach(e => {
@@ -2646,6 +2657,7 @@ window.G3D = {
   enterIsland, exitIsland, nearestServerIsland, serverWorks, get islandEdit() { return islandEdit; }, get carriedServer() { return carriedServer; },
   enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
   get cableCurves() { return cableCurves; }, get retimers() { return S.retimers; },
+  scaleMiniServers, get miniGroup() { return miniGroup; }, controls,
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
