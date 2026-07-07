@@ -1332,7 +1332,7 @@ function syncScene() {
 let cableRoutes = new Map();
 function nodeX(gi) { return gi - GRID_W / 2; }        // world x of vertical gridline gi (0..GRID_W)
 function nodeZ(gj) { return gj - GRID_H / 2; }        // world z of horizontal gridline gj (0..GRID_H)
-function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.2; }
+function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.27; }
 /* fan a cable's attach point out along the device edge (perpendicular to the
    direction it heads off in) so several wires on one device never share a stub */
 function attachPt(cx, cz, tx, tz, idx, n) {
@@ -1608,6 +1608,44 @@ function setGhost(type) {
 /* elastic drag lines */
 const elasticGroup = new THREE.Group();
 scene.add(elasticGroup);
+/* drag-to-connect: a live rubber-band wire from the grabbed device to the cursor,
+   coloured by the signal it would have, with a marker where it would die */
+let cableDrag = null;
+const cableDragGroup = new THREE.Group();
+scene.add(cableDragGroup);
+function updateCablePreview(ev) {
+  cableDragGroup.clear();
+  if (!cableDrag || !CAB[S.tool]) return;
+  const fm = entMeshes.get(cableDrag.from.id); if (!fm) return;
+  const tile = tileFromPointer(ev);
+  const target = tile && entCovering(tile.i, tile.j);
+  const endTile = target ? { i: target.i, j: target.j } : (tile || { i: cableDrag.from.i, j: cableDrag.from.j });
+  const spec = CAB[S.tool];
+  let h = 100, deadAt = -1;
+  const path = lPath(cableDrag.from, endTile);
+  for (let k = 1; k < path.length; k++) {
+    h -= spec.loss * lossMul();
+    if (h < FAIL) { deadAt = k; break; }
+    if (spec.retime && retAt(path[k].i, path[k].j)) h = 100;
+  }
+  const reaches = deadAt < 0;
+  const col = !reaches ? 0xe05555 : (h >= 65 ? 0x57e389 : 0xf5c542);
+  const a = fm.position.clone().setY(0.4);
+  const b = target ? entMeshes.get(target.id).position.clone().setY(0.4)
+    : new THREE.Vector3(tX(endTile.i), 0.25, tZ(endTile.j));
+  const mid = a.clone().lerp(b, 0.5); mid.y += 0.55 + a.distanceTo(b) * 0.05;
+  const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+  cableDragGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.055, 8, false),
+    new THREE.MeshToonMaterial({ color: col, gradientMap: gradTex, emissive: col, emissiveIntensity: 0.55, transparent: true, opacity: 0.92 })));
+  if (!reaches) {   // red marker where the signal dies
+    const p = curve.getPointAt(Math.max(0.05, Math.min(0.92, deadAt / Math.max(1, path.length - 1))));
+    const x = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), new THREE.MeshBasicMaterial({ color: 0xe05555 }));
+    x.position.copy(p); cableDragGroup.add(x);
+  }
+  const endM = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.04, 8, 20),
+    new THREE.MeshBasicMaterial({ color: target && target.id !== cableDrag.from.id ? 0x57e389 : 0xffffff, transparent: true, opacity: 0.8 }));
+  endM.rotation.x = Math.PI / 2; endM.position.set(b.x, 0.03, b.z); cableDragGroup.add(endM);
+}
 function updateElastics() {
   elasticGroup.clear();
   if (!(drag && drag.lift)) return;
@@ -1722,6 +1760,12 @@ const dom = renderer.domElement;
 dom.addEventListener('pointermove', ev => {
   const t = tileFromPointer(ev);
   hoverTile = t;
+  if (cableDrag) {
+    if (!cableDrag.moved && Math.hypot(ev.clientX - cableDrag.sx, ev.clientY - cableDrag.sy) > 5) cableDrag.moved = true;
+    updateCablePreview(ev);
+    dom.style.cursor = 'crosshair';
+    return;
+  }
   if (drag) {
     if (!drag.lift && t) {
       if (Math.hypot(ev.clientX - drag.sx, ev.clientY - drag.sy) > 6) { drag.lift = true; drag.moved = true; rebuildCables(); }
@@ -1746,10 +1790,9 @@ dom.addEventListener('pointerdown', ev => {
   if (S.tool === 'retimer') { if (tile) { const rt = pickRetimerTile(tile.x, tile.z) || tile; tryPlaceRet(rt.i, rt.j, rt.cid); } return; }
   if (CAB[S.tool]) {
     const e = tile && entCovering(tile.i, tile.j);
-    if (!e) { say(S.pendA ? 'Click a device to finish the cable — Esc to cancel.' : 'Click a device to start a cable.'); return; }
-    if (!S.pendA) { S.pendA = e; return; }
-    tryCable(S.tool, S.pendA, e);
-    S.pendA = null;
+    if (!e) { say(S.pendA ? 'Click a device to finish the cable — Esc to cancel.' : 'Click a device, or drag from one to another, to lay a cable.'); return; }
+    /* start a drag-to-connect; a tap (no drag) falls back to click-click on pointerup */
+    cableDrag = { from: e, sx: ev.clientX, sy: ev.clientY, moved: false };
     return;
   }
   if (S.tool === 'delete') {
@@ -1763,7 +1806,22 @@ dom.addEventListener('pointerdown', ev => {
   showInspector(th);
 });
 dom.addEventListener('pointerup', ev => {
-  if (ev.button !== 0 || !drag) return;
+  if (ev.button !== 0) return;
+  if (cableDrag) {
+    const cd = cableDrag; cableDrag = null; cableDragGroup.clear();
+    const tile = tileFromPointer(ev);
+    const target = tile && entCovering(tile.i, tile.j);
+    if (cd.moved) {                                   // drag-to-connect
+      if (target && target.id !== cd.from.id) tryCable(S.tool, cd.from, target);
+      S.pendA = null;
+    } else if (!S.pendA) {                            // tap = start a click-click cable
+      S.pendA = cd.from; say('Now click — or drag to — another device to finish the cable.');
+    } else {                                          // tap = finish a click-click cable
+      tryCable(S.tool, S.pendA, cd.from); S.pendA = null;
+    }
+    return;
+  }
+  if (!drag) return;
   const d = drag; drag = null;
   const tile = tileFromPointer(ev);
   if (d.moved && tile) moveEnt(d.ent, tile.i, tile.j);
@@ -1771,7 +1829,9 @@ dom.addEventListener('pointerup', ev => {
   elasticGroup.clear();
 });
 window.addEventListener('pointerup', ev => {
-  if (ev.button === 0 && drag) { drag = null; rebuildCables(); elasticGroup.clear(); }
+  if (ev.button !== 0) return;
+  if (cableDrag) { cableDrag = null; cableDragGroup.clear(); }   // released off-canvas → cancel
+  if (drag) { drag = null; rebuildCables(); elasticGroup.clear(); }
 });
 
 const NUDGE = {
@@ -1782,7 +1842,7 @@ window.addEventListener('keydown', ev => {
   if (fpMode) return;   // WASD/arrows drive the first-person camera, not components
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA') return;
-  if (ev.key === 'Escape') { drag = null; S.pendA = null; setTool('select'); rebuildCables(); elasticGroup.clear(); }
+  if (ev.key === 'Escape') { drag = null; cableDrag = null; cableDragGroup.clear(); S.pendA = null; setTool('select'); rebuildCables(); elasticGroup.clear(); }
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selected) removeThing(S.selected);
   const nudge = NUDGE[ev.key.toLowerCase()];
   if (nudge) {
