@@ -931,7 +931,10 @@ function buildAnimal(i) {
   let legL, legR;
   if (k.biped) { legL = mkLeg(-0.06, 0.04); legR = mkLeg(0.06, 0.04); }
   else { legL = mkLeg(-0.1, 0.11); legR = mkLeg(0.1, 0.11); mkLeg(-0.1, -0.1); mkLeg(0.1, -0.1); }
-  g.userData = { legL, legR };
+  const wrench = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.016, 6, 12),
+    new THREE.MeshToonMaterial({ color: 0x8dffb8, gradientMap: gradTex, emissive: 0x2fbf6a, emissiveIntensity: 1.0 }));
+  wrench.position.set(0.14, 0.34, 0.15); wrench.visible = false; g.add(wrench);
+  g.userData = { legL, legR, wrench };
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
@@ -945,8 +948,13 @@ for (let k = 0; k < 7; k++) {
    wander the grid; in the hall they mill about on the islands */
 function workerSpot() {
   if (islandEdit || !S.level.islands) {
+    const parts = S.ents;
+    if (parts.length && Math.random() < 0.72) {   // head over to tend a placed component
+      const e = parts[(Math.random() * parts.length) | 0], sz = esize(e.type);
+      return { x: tX(e.i) + (sz[0] - 1) / 2 + (Math.random() - 0.5) * 0.55, z: tZ(e.j) + (sz[1] - 1) / 2 + (Math.random() - 0.5) * 0.55, y: 0.01, s: 0.5, fix: true };
+    }
     const w = GRID_W / 2 - 0.6, h = GRID_H / 2 - 0.6;
-    return { x: (Math.random() * 2 - 1) * w, z: (Math.random() * 2 - 1) * h, y: 0.01, s: 0.5 };
+    return { x: (Math.random() * 2 - 1) * w, z: (Math.random() * 2 - 1) * h, y: 0.01, s: 0.5, fix: false };
   }
   const isl = S.ents.filter(e => e.type === 'srv' || e.type === 'core');
   const e = isl.length ? isl[Math.floor(Math.random() * isl.length)] : { i: 8, j: 4 };
@@ -963,7 +971,7 @@ function placeWorkers() {
     wk.mesh.visible = show;
     if (!show) return;
     const p = workerSpot(); wk.x = p.x; wk.z = p.z; wk.y = p.y;
-    const t = workerSpot(); wk.tx = t.x; wk.tz = t.z; wk.pause = Math.random() * 1.5;
+    const t = workerSpot(); wk.tx = t.x; wk.tz = t.z; wk.pause = Math.random() * 1.5; wk.targetFix = t.fix; wk.fixing = false;
     wk.mesh.position.set(wk.x, wk.y, wk.z);
     wk.mesh.scale.setScalar(p.s);
   });
@@ -971,9 +979,26 @@ function placeWorkers() {
 function updateWorkers(dt, t) {
   workers.forEach(wk => {
     if (!wk.mesh.visible) return;
-    if (wk.pause > 0) { wk.pause -= dt; wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 3 + wk.phase)) * 0.008; return; }
+    const wr = wk.mesh.userData.wrench;
+    if (wk.pause > 0) {
+      wk.pause -= dt;
+      if (wk.fixing) {   // busy on a component: whip out the wrench, tap-tap
+        if (wr) { wr.visible = true; wr.rotation.z += dt * 11; }
+        wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 8 + wk.phase)) * 0.02;
+      } else {
+        if (wr) wr.visible = false;
+        wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 3 + wk.phase)) * 0.008;
+      }
+      return;
+    }
+    if (wr) wr.visible = false;
     const dx = wk.tx - wk.x, dz = wk.tz - wk.z, d = Math.hypot(dx, dz);
-    if (d < 0.12) { wk.pause = 0.6 + Math.random() * 1.8; const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; return; }
+    if (d < 0.12) {
+      wk.fixing = !!wk.targetFix;   // arrived at a component → get to work
+      wk.pause = wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4);
+      const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; wk.targetFix = nt.fix;
+      return;
+    }
     const step = Math.min(d, wk.spd * dt);
     wk.x += dx / d * step; wk.z += dz / d * step;
     wk.mesh.position.set(wk.x, wk.y + Math.abs(Math.sin(t * 9 + wk.phase)) * 0.01, wk.z);
@@ -1091,13 +1116,13 @@ function buildBoat() {
   const hull = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.26, 1.05, 1, 1, 1), toon(0x8a5a33)); hull.position.y = 0.1; hull.castShadow = true;
   const deck = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.66), toon(0xb5895a)); deck.position.y = 0.25;
   const cabin = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.26, 0.3, 2, 0.05), toon(0xeae2d2)); cabin.position.set(0, 0.4, -0.16);
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.22, 8), toon(0xf08a3c)); body.position.set(0, 0.4, 0.22);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), toon(0xffcf9e)); head.position.set(0, 0.57, 0.22);
-  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), toon(0xffd23f)); hat.position.set(0, 0.585, 0.22);
+  /* an animal crew member mans the boat */
+  const critter = buildAnimal((Math.random() * ANIMAL_KINDS.length) | 0);
+  critter.scale.setScalar(0.62); critter.position.set(0, 0.28, 0.16);
   const wrench = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.03, 6, 14),
     new THREE.MeshToonMaterial({ color: 0x8dffb8, gradientMap: gradTex, emissive: 0x2fbf6a, emissiveIntensity: 1.2 }));
-  wrench.position.set(0, 0.85, 0.05); wrench.visible = false;
-  g.add(hull, deck, cabin, body, head, hat, wrench);
+  wrench.position.set(0, 0.78, 0.16); wrench.visible = false;
+  g.add(hull, deck, cabin, critter, wrench);
   g.userData.wrench = wrench;
   return g;
 }
