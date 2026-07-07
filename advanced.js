@@ -71,9 +71,9 @@ const CAT = {
 };
 const CAB = {
   trace: {
-    name: 'PCIe trace', watts: 0.5, loss: 25, cap: 2, color: 0xd9a326, retime: true,
+    name: 'PCIe trace', watts: 0.5, loss: 20, cap: 2, color: 0xd9a326, retime: true,
     tag: 'Copper etched right into the board',
-    desc: 'A copper trace is nearly free — but at PCIe Gen6 speeds the signal smears out fast (25% health per tile). Long runs need retimer chips placed along the route.',
+    desc: 'A copper trace is nearly free — but at PCIe Gen6 speeds the signal smears out fast (20% health per tile). Long runs need retimer chips placed along the route.',
     real: 'Past ~30 cm of board copper at Gen5/Gen6, designers reach for a retimer.'
   },
   aecb: {
