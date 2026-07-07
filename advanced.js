@@ -1864,9 +1864,8 @@ window.addEventListener('pointerup', ev => {
   if (drag) { drag = null; rebuildCables(); elasticGroup.clear(); }
 });
 
-const NUDGE = {
-  arrowup: [0, -1], arrowdown: [0, 1], arrowleft: [-1, 0], arrowright: [1, 0],
-  w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
+const NUDGE = {   // arrow keys nudge a selected part; WASD pans the camera instead
+  arrowup: [0, -1], arrowdown: [0, 1], arrowleft: [-1, 0], arrowright: [1, 0]
 };
 window.addEventListener('keydown', ev => {
   if (fpMode) return;   // WASD/arrows drive the first-person camera, not components
@@ -2243,6 +2242,24 @@ function animate(ts) {
     camera.lookAt(CAM_TARGET);
     if (camTween.t >= 1) { camTween = null; controls.target.copy(CAM_TARGET); controls.enabled = true; controls.update(); }
   } else {
+    /* WASD pans the camera across the map (arrow keys still nudge a selected part) */
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
+      const pf = (fpKeys['KeyW'] ? 1 : 0) - (fpKeys['KeyS'] ? 1 : 0);
+      const pr = (fpKeys['KeyD'] ? 1 : 0) - (fpKeys['KeyA'] ? 1 : 0);
+      if (pf || pr) {
+        const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0;
+        if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
+        const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+        const move = new THREE.Vector3().addScaledVector(fwd, pf).addScaledVector(right, pr).normalize();
+        const spd = camera.position.distanceTo(controls.target) * 0.9 * dt;
+        const ox = controls.target.x, oz = controls.target.z;
+        controls.target.x = Math.max(-16, Math.min(16, controls.target.x + move.x * spd));
+        controls.target.z = Math.max(-12, Math.min(12, controls.target.z + move.z * spd));
+        camera.position.x += controls.target.x - ox;   // move the camera by the same (clamped) amount
+        camera.position.z += controls.target.z - oz;
+      }
+    }
     controls.update();
   }
   updateWorkers(dt, t);
