@@ -135,7 +135,14 @@ const LEVELS = [
       { text: 'Add a second server and bring it online', check: s => s.stats.online >= 2,
         hint: 'Pick the <b>Server</b> tool, drop a new island, scroll in to build its server, then cable it to the core.' },
       { text: 'Grow the hall — 4 servers online', check: s => s.stats.online >= 4,
-        hint: 'Keep adding servers, building each one, and cabling to the core — <b>AEC</b> for near islands, <b>AOC</b> for the far ones.' }
+        hint: 'Keep adding servers, building each one, and cabling to the core — <b>AEC</b> for near islands, <b>AOC</b> for the far ones.' },
+      { text: 'Add redundancy — dual-home a server (two links to the core)',
+        check: s => s.ents.some(e => e.type === 'srv' && s.cables.filter(c => (c.a === e.id || c.b === e.id) && c.ok && !c.down).length >= 2),
+        hint: 'Run a <b>second</b> cable from one working server to the core. Two paths means a single failure can’t take it down.' },
+      { text: 'A bigger hall — 6 servers online', check: s => s.stats.online >= 6,
+        hint: 'More islands, more servers — keep building and cabling. Space islands a few tiles apart.' },
+      { text: 'A humming data hall — 8 servers online', check: s => s.stats.online >= 8,
+        hint: 'Fill out the hall. Reach the far islands with <b>AOC</b>, and remember retimers keep long copper alive.' }
     ],
     lesson: `<h2>Advanced — one continuous hall</h2>
       <p>You're standing on your <b>first server's board</b>. Build it: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b>, wire them with <b>PCIe traces</b> (add <b>retimers</b> on long runs), and bring a GPU online.</p>
