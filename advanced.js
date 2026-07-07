@@ -525,7 +525,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0.6);
 controls.enablePan = false;
 controls.minDistance = 8;
-controls.maxDistance = 26;
+controls.maxDistance = 46;   // pull way back to take in the whole hall
 controls.minPolarAngle = 0.25;
 controls.maxPolarAngle = 1.35;
 controls.minAzimuthAngle = -Infinity;   // full 360° orbit around the map
@@ -685,12 +685,12 @@ renderer.domElement.addEventListener('wheel', ev => {
   const dist = camera.position.distanceTo(controls.target);
   const nearIn = dist <= controls.minDistance + 0.8;
   const nearOut = dist >= controls.maxDistance - 0.8;
-  /* inside a server island → scroll OUT to return to the data hall */
+  /* inside a server island → scroll OUT to pull back to the whole data hall */
   if (islandEdit) {
     if (ev.deltaY > 0 && nearOut) {
       overscroll += ev.deltaY;
-      if (overscroll > 60) say('Keep scrolling out to return to the data hall…');
-      if (overscroll > 240) { overscroll = 0; exitIsland(); }
+      if (overscroll > 40) say('Keep zooming out to see the whole hall…');
+      if (overscroll > 110) { overscroll = 0; exitIsland(); }
     } else overscroll = 0;
     return;
   }
@@ -1409,7 +1409,7 @@ function renderMiniServers() {
 function scaleMiniServers() {
   if (!miniGroup.children.length) return;
   const dist = camera.position.distanceTo(controls.target);
-  const k = Math.max(1, Math.min(3, 3 - (dist - 8) / (26 - 8) * 2));   // ~3x zoomed in, 1x zoomed out
+  const k = Math.max(1, Math.min(3, 3 - (dist - 8) / (46 - 8) * 2));   // ~3x zoomed in, 1x zoomed way out
   miniGroup.children.forEach(g => g.scale.setScalar(k));
 }
 function syncScene() {
