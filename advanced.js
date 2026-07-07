@@ -411,6 +411,12 @@ function recompute() {
   };
 
   syncScene();
+  /* inside an island: the moment its server works, tell the player to scroll out */
+  if (islandEdit && online >= 1 && !S._proceed) {
+    S._proceed = true;
+    say('✓ Server working! Scroll out — or hit ↖ Back to the data hall — to wire it to the core.');
+    backBtn(true, true);
+  }
   if (!S.done && !S.level.sandbox && S.level.goals.every(g => g.check(S))) {
     S.done = true;
     unlockLevel(S.idx + 1);
@@ -603,7 +609,7 @@ function nearestServerIsland() {
   return best;
 }
 let backBtnEl = null;
-function backBtn(show) {
+function backBtn(show, pulse) {
   if (!backBtnEl) {
     backBtnEl = document.createElement('button');
     backBtnEl.id = 'backHall';
@@ -612,6 +618,8 @@ function backBtn(show) {
     backBtnEl.onclick = () => exitIsland();
   }
   backBtnEl.style.display = show ? '' : 'none';
+  if (show && pulse) backBtnEl.classList.add('pulse');
+  if (!show) backBtnEl.classList.remove('pulse');
 }
 function enterIsland(ent) {
   if (islandEdit || !ent || ent.type !== 'srv') return;
