@@ -1309,8 +1309,76 @@ function syncScene() {
 }
 /* ---- wiring: each cable is a clean raised arc between its two devices — easy to
    see and to click. Retimers ride the arc at a parameter t (0..1) along it. ---- */
-function cableFan(c) { return ((c.id * 2654435761) >>> 0) % 1000 / 1000; }  // stable 0..1 per cable
-function cableCurveFor(c) {
+let wireStyle = 'routed';   // 'routed' = flat, grid-routed in non-overlapping lanes · 'arc' = raised
+try { if (localStorage.getItem('dct3d_wire') === 'arc') wireStyle = 'arc'; } catch (e) {}
+const cableFan = c => ((c.id * 2654435761) >>> 0) % 1000 / 1000;   // stable 0..1 per cable
+/* --- flat grid router: wires run in the gutters between tiles, each in its own
+   lane so they never overlap; L-shaped, raised just enough to read clearly --- */
+const ROUTE_Y = 0.13;
+let cableRoutes = new Map();
+function nodeX(gi) { return gi - GRID_W / 2; }
+function nodeZ(gj) { return gj - GRID_H / 2; }
+function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.28; }
+function attachPt(cx, cz, tx, tz, idx, n) {
+  if (n <= 1) return [cx, cz];
+  let dx = tx - cx, dz = tz - cz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+  const off = (idx - (n - 1) / 2) * Math.min(0.28, 1.0 / n);
+  return [cx + (-dz) * off, cz + dx * off];
+}
+function devCorners(e) { const s = esize(e.type); return [[e.i, e.j], [e.i + s[0], e.j], [e.i, e.j + s[1]], [e.i + s[0], e.j + s[1]]]; }
+function pickNode(dev, other) {
+  const oc = entCenter(other); let best = [dev.i, dev.j], bd = 1e9;
+  devCorners(dev).forEach(([gi, gj]) => { const dx = nodeX(gi) - oc.x, dz = nodeZ(gj) - oc.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = [gi, gj]; } });
+  return { gi: best[0], gj: best[1] };
+}
+function routeCables() {
+  cableRoutes = new Map();
+  const horiz = {}, vert = {}, meta = {};
+  S.cables.forEach(c => {
+    const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
+    if (!A || !B) return;
+    const na = pickNode(A, B), nb = pickNode(B, A);
+    meta[c.id] = { A, B, na, nb };
+    (horiz[na.gj] = horiz[na.gj] || []).push({ id: c.id, a: Math.min(na.gi, nb.gi), b: Math.max(na.gi, nb.gi) });
+    (vert[nb.gi] = vert[nb.gi] || []).push({ id: c.id, a: Math.min(na.gj, nb.gj), b: Math.max(na.gj, nb.gj) });
+  });
+  const laneH = {}, laneV = {};
+  const alloc = (groups, out) => {
+    Object.keys(groups).forEach(key => {
+      const lanes = [];
+      groups[key].forEach(it => {
+        let k = 0;
+        for (; ; k++) { const occ = lanes[k] || (lanes[k] = []); if (!occ.some(r => it.a <= r[1] && it.b >= r[0])) { occ.push([it.a, it.b]); break; } }
+        out[it.id] = k;
+      });
+    });
+  };
+  alloc(horiz, laneH); alloc(vert, laneV);
+  const devCables = {};
+  S.cables.forEach(c => { const m = meta[c.id]; if (!m) return;
+    (devCables[m.A.id] = devCables[m.A.id] || []).push(c.id);
+    (devCables[m.B.id] = devCables[m.B.id] || []).push(c.id); });
+  S.cables.forEach(c => {
+    const m = meta[c.id]; if (!m) return;
+    const offH = laneShift(laneH[c.id] || 0), offV = laneShift(laneV[c.id] || 0);
+    const zLine = nodeZ(m.na.gj) + offH, xLine = nodeX(m.nb.gi) + offV;
+    const A = entCenter(m.A), B = entCenter(m.B);
+    const aL = devCables[m.A.id], bL = devCables[m.B.id];
+    const pa = attachPt(A.x, A.z, nodeX(m.na.gi), nodeZ(m.na.gj), aL.indexOf(c.id), aL.length);
+    const pb = attachPt(B.x, B.z, nodeX(m.nb.gi), nodeZ(m.nb.gj), bL.indexOf(c.id), bL.length);
+    const raw = [
+      new THREE.Vector3(pa[0], ROUTE_Y, pa[1]),
+      new THREE.Vector3(nodeX(m.na.gi), ROUTE_Y, zLine),
+      new THREE.Vector3(xLine, ROUTE_Y, zLine),
+      new THREE.Vector3(xLine, ROUTE_Y, nodeZ(m.nb.gj)),
+      new THREE.Vector3(pb[0], ROUTE_Y, pb[1])
+    ];
+    const pts = raw.filter((p, k) => k === 0 || p.distanceToSquared(raw[k - 1]) > 0.0004);
+    if (pts.length < 2) pts.push(new THREE.Vector3(B.x + 0.01, ROUTE_Y, B.z));
+    cableRoutes.set(c.id, pts);
+  });
+}
+function arcCurveFor(c) {
   const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
   if (!A || !B) return new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0.05, 0.6, 0), new THREE.Vector3(0.1, 0.5, 0));
   const ca = entCenter(A), cb = entCenter(B);
@@ -1320,11 +1388,17 @@ function cableCurveFor(c) {
   const f = cableFan(c);
   const dir = new THREE.Vector3().subVectors(b, a); dir.y = 0;
   const perp = new THREE.Vector3(-dir.z, 0, dir.x); if (perp.lengthSq() > 1e-6) perp.normalize();
-  const side = (f - 0.5) * Math.min(1.1, 0.25 + dist * 0.14);   // lean parallel wires apart
-  const lift = 0.55 + dist * 0.2 + f * 0.4;                     // arc height (varied so they don't stack)
+  const side = (f - 0.5) * Math.min(1.1, 0.25 + dist * 0.14);
+  const lift = 0.55 + dist * 0.2 + f * 0.4;
   const mid = a.clone().lerp(b, 0.5).addScaledVector(perp, side); mid.y += lift;
   return new THREE.QuadraticBezierCurve3(a, mid, b);
 }
+function routedCurveFor(c) {
+  const pts = cableRoutes.get(c.id);
+  if (!pts) return new THREE.CatmullRomCurve3([new THREE.Vector3(0, ROUTE_Y, 0), new THREE.Vector3(0.1, ROUTE_Y, 0)]);
+  return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.05);
+}
+function cableCurveFor(c) { return wireStyle === 'arc' ? arcCurveFor(c) : routedCurveFor(c); }
 /* raycast the wires under the cursor → the cable + the point/param nearest the hit */
 function pickWire(ev) {
   raycaster.setFromCamera(pointerNdc(ev), camera);
@@ -1348,7 +1422,7 @@ function positionRetimers() {
     if (!curve) { mesh.visible = false; return; }
     mesh.visible = true;
     const p = curve.getPointAt(r.t), tan = curve.getTangentAt(r.t);
-    mesh.position.set(p.x, p.y, p.z);
+    mesh.position.set(p.x, p.y + (wireStyle === 'routed' ? 0.06 : 0), p.z);   // pop up a touch on flat wires
     mesh.rotation.y = Math.atan2(tan.x, tan.z);
   });
 }
@@ -1356,6 +1430,7 @@ function rebuildCables() {
   scene.remove(cableGroup);
   cableGroup = new THREE.Group();
   cableCurves.clear();
+  if (wireStyle === 'routed') routeCables();
   S.cables.forEach(c => {
     if (drag && drag.lift && (c.a === drag.ent.id || c.b === drag.ent.id)) return;
     const curve = cableCurveFor(c);
@@ -1364,14 +1439,15 @@ function rebuildCables() {
     const segs = Math.max(14, n * 8);
     if (c.ok && !c.down) {
       /* in the data hall, colour by utilisation (congestion) instead of cable type */
-      let mat, radius = 0.085;
+      let mat, radius = wireStyle === 'routed' ? 0.075 : 0.085;
       if (c.util !== undefined) {
         const hex = c.util > 1.0 ? 0xe05555 : c.util > 0.7 ? 0xf5c542 : 0x43d15f;
         mat = new THREE.MeshToonMaterial({ color: hex, gradientMap: gradTex, emissive: hex, emissiveIntensity: c.util > 1.0 ? 0.55 : 0.12 });
         radius = 0.06 + Math.min(0.05, c.util * 0.035);
         mat.userData = { hot: c.util > 1.0 };
       } else {
-        mat = toon(CAB[c.type].color);
+        const col = CAB[c.type].color;
+        mat = new THREE.MeshToonMaterial({ color: col, gradientMap: gradTex, emissive: col, emissiveIntensity: 0.35 });
       }
       const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, radius, 8, false), mat);
       tube.castShadow = true;
@@ -2359,6 +2435,18 @@ showFact(true);
 setInterval(factTick, 13000);
 requestAnimationFrame(animate);
 
+/* wire-style toggle: flat grid-routed ⇄ raised arcs */
+function setWireStyle(s) { wireStyle = s; try { localStorage.setItem('dct3d_wire', s); } catch (e) {} rebuildCables(); }
+(function () {
+  const b = document.createElement('button');
+  b.id = 'btnWire'; b.type = 'button'; b.title = 'Wire style: flat grid-routed ⇄ raised arcs';
+  const upd = () => { b.textContent = wireStyle === 'routed' ? '〰 Flat wires' : '⌒ Arc wires'; };
+  b.onclick = () => { setWireStyle(wireStyle === 'routed' ? 'arc' : 'routed'); upd(); };
+  const host = document.getElementById('hudBtns');
+  if (host) host.insertBefore(b, host.firstChild);
+  upd();
+})();
+
 /* first-person "walk the floor" button */
 (function () {
   const b = document.createElement('button');
@@ -2426,5 +2514,6 @@ window.G3D = {
   enterIsland, exitIsland, nearestServerIsland, serverWorks, get islandEdit() { return islandEdit; }, get carriedServer() { return carriedServer; },
   enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
   get cableCurves() { return cableCurves; }, get retimers() { return S.retimers; },
+  setWireStyle, get wireStyle() { return wireStyle; }, get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
