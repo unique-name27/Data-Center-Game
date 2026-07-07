@@ -142,7 +142,7 @@ const LEVELS = [
       <p class="tip">One world, two scales — zoom in to build a server, zoom out to connect the hall.</p>`
   },
   {
-    title: 'Lesson 1 — Inside the server',
+    title: 'Lesson 1 — Inside the server', hidden: true,
     tools: ['gpu', 'cpu', 'mem', 'trace', 'retimer'],
     pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'gpu', i: 14, j: 4 }],
     goals: [
@@ -164,7 +164,7 @@ const LEVELS = [
       <p class="tip">A retimer can’t resurrect a dead signal — place it before health falls under 30%. Drag with the mouse, or nudge with arrow keys / WASD. Right-drag to orbit the camera.</p>`
   },
   {
-    title: 'Lesson 2 — Build the full server',
+    title: 'Lesson 2 — Build the full server', hidden: true,
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [{ t: 'cpu', i: 7, j: 4 }, { t: 'uplink', i: 15, j: 0 }],
     goals: [
@@ -186,7 +186,7 @@ const LEVELS = [
       <p class="tip">A GPU is online only when it can reach a CPU <i>and</i> memory — through the switch counts. Need another CPU? Drop one.</p>`
   },
   {
-    title: 'Lesson 3 — Connect the islands', islands: true,
+    title: 'Lesson 3 — Connect the islands', islands: true, hidden: true,
     tools: ['aecb', 'aocb'],
     pre: [
       { t: 'core', i: 10, j: 4 },
@@ -209,7 +209,7 @@ const LEVELS = [
       <p class="tip">This is the real reason AECs and AOCs exist: the moment you leave the board, copper physics decides how far you can go.</p>`
   },
   {
-    title: 'Sandbox — Inside a server', sandbox: true,
+    title: 'Sandbox — Inside a server', sandbox: true, hidden: true,
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'uplink', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [],
     goals: [{ text: 'Build any server you like', check: () => false }],
@@ -219,12 +219,12 @@ const LEVELS = [
       <p class="tip">A GPU sparkles green when it can reach a CPU and memory. Right-drag to orbit, scroll to zoom.</p>`
   },
   {
-    title: 'Sandbox — Data hall', sandbox: true, islands: true,
+    title: 'Free build — one hall', sandbox: true, islands: true,
     tools: ['srv', 'core', 'aecb', 'aocb'],
     pre: [{ t: 'core', i: 8, j: 4 }],
     goals: [{ text: 'Grow a data hall your way', check: () => false }],
-    lesson: `<h2>Sandbox — Data hall</h2>
-      <p>Zoom all the way out. Drop <b>server islands</b> and <b>core switch islands</b> anywhere on the sea, then wire them together with <b>AEC</b> and <b>AOC</b> cables to grow your own rack — an archipelago of servers.</p>
+    lesson: `<h2>Free build — one hall</h2>
+      <p>No objectives — just build. Drop <b>server islands</b> and <b>core switch islands</b> anywhere on the sea, <b>scroll in</b> on an island to build its server, and wire everything together with <b>AEC</b> and <b>AOC</b> cables.</p>
       <p>New: <b>cables have capacity</b>. A server island pushes <b>6.4 Tb/s</b>, but one AEC only carries <b>4</b>. When a link is overloaded it glows <b style="color:#e05555">red</b>; add parallel cables or switch to a fatter <b>AOC (10 Tb/s)</b> until it cools to <b style="color:#43d15f">green</b>.</p>
       <p class="tip">Islands need a little elbow room — drop them a couple of tiles apart. Drag to rearrange, Del to remove.</p>`
   },
@@ -550,8 +550,8 @@ function beginScaleZoom(zoomOut) {
 let overscroll = 0, lastWheel = 0;
 let islandEdit = null;      // { outerS, ent } while zoomed inside one island's server
 let carriedServer = null;   // your last server build, carried forward into the island lessons
-function serverSandboxIdx() { return LEVELS.findIndex(L => L.sandbox && !L.islands); }
-function dataHallIdx() { return LEVELS.findIndex(L => L.title.indexOf('Data hall') >= 0); }
+function campaignIdx() { return LEVELS.findIndex(L => L.campaign); }
+function freeBuildIdx() { return LEVELS.findIndex(L => L.sandbox && L.islands && !L.survival); }
 const SERVER_TOOLS = ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'retimer'];
 
 /* deep-copy a {ents,cables,retimers} build with fresh ids */
@@ -646,23 +646,6 @@ renderer.domElement.addEventListener('wheel', ev => {
       overscroll += -ev.deltaY;
       if (overscroll > 60) say('Keep scrolling in to build this server…');
       if (overscroll > 240) { overscroll = 0; enterIsland(ent); }
-      return;
-    }
-  }
-  /* sandbox scale hops (server sandbox ⇄ data hall) */
-  if (S.level.sandbox) {
-    const isHall = S.level.title.indexOf('Data hall') >= 0;
-    const isServerSandbox = S.level.sandbox && !S.level.islands;
-    if (isServerSandbox && ev.deltaY > 0 && nearOut) {
-      overscroll += ev.deltaY;
-      if (overscroll > 60) say('Keep scrolling out to zoom to the data hall…');
-      if (overscroll > 300) { overscroll = 0; startLevel(dataHallIdx()); }
-      return;
-    }
-    if (isHall && ev.deltaY < 0 && nearIn && !nearestServerIsland()) {
-      overscroll += -ev.deltaY;
-      if (overscroll > 60) say('Keep scrolling in to zoom into a server…');
-      if (overscroll > 300) { overscroll = 0; startLevel(serverSandboxIdx()); }
       return;
     }
   }
@@ -1830,9 +1813,9 @@ function updateHUD() {
   }
   $('levelName').textContent = S.level.title;
   const mode = $('btnMode');
-  const inExtra = S.level.sandbox || S.level.survival;
-  mode.textContent = inExtra ? '▶ Start campaign' : 'Sandbox';
-  mode.classList.toggle('big', !!inExtra);
+  mode.textContent = S.level.campaign ? '⚒ Free build' : '▶ Campaign';
+  mode.classList.toggle('big', !S.level.campaign);
+  mode.style.display = islandEdit ? 'none' : '';   // inside a server, the Back button is the control
   /* the suite + interop lab are Survival-only tools — only surface them there */
   upgBtns.forEach(b => { b.style.display = S.level.survival ? '' : 'none'; });
 }
@@ -1960,6 +1943,7 @@ function maxUnlocked() { return Math.min(parseInt(localStorage.getItem(LS_KEY) |
 function buildLevelSelect() {
   const sel = $('lvlSel'); sel.innerHTML = '';
   LEVELS.forEach((L, n) => {
+    if (L.hidden) return;   // lessons + chip sandbox are folded into the one-map campaign
     const o = document.createElement('option');
     o.value = n; o.textContent = L.title;
     o.disabled = false;
@@ -2007,7 +1991,7 @@ function startLevel(idx) {
   }
 }
 
-$('btnMode').onclick = () => startLevel((S.level.sandbox || S.level.survival) ? 0 : serverSandboxIdx());
+$('btnMode').onclick = () => startLevel(S.level.campaign ? freeBuildIdx() : campaignIdx());
 $('modalClose').onclick = () => $('modal').classList.remove('open');
 $('btnLesson').onclick = showLesson;
 $('btnRestart').onclick = () => startLevel(S.idx);
