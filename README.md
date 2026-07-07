@@ -6,9 +6,12 @@ A browser game that teaches how data actually moves inside a data center — and
 
 | Edition | Link |
 |---|---|
-| **✨ 3D island edition** (recommended) | **https://unique-name27.github.io/Data-Center-Game/3d.html** |
+| **🧪 Advanced edition** (in development) | **https://unique-name27.github.io/Data-Center-Game/advanced.html** |
+| ✨ 3D island edition | **https://unique-name27.github.io/Data-Center-Game/3d.html** |
 | 2D edition | **https://unique-name27.github.io/Data-Center-Game/** |
 | Classic prototype (Data Center Builder) | https://unique-name27.github.io/Data-Center-Game/classic.html |
+
+The **advanced edition** is a fork of the 3D edition being grown into one continuous, persistent world: **scroll in** on a server island to build its board, **scroll out** to wire the whole hall — your build stays put across every scale. Deeper topology (rows, halls, leaf-spine) and connectivity depth (more link types) are on the way.
 
 No install, no accounts, no build step — it runs in any modern browser. The 3D edition loads [Three.js](https://threejs.org/) from a CDN, so it needs an internet connection; the 2D edition is fully offline.
 
