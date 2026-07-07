@@ -533,16 +533,24 @@ controls.dampingFactor = 0.08;
 
 /* ---- first-person mode: walk the floor with WASD + mouse look ---- */
 const fpControls = new PointerLockControls(camera, renderer.domElement);
-let fpMode = false; const fpKeys = {};
+let fpMode = false, fpBob = 0; const fpKeys = {};
+let fpCrossEl = null;
+function fpCrosshair(show) {
+  if (!fpCrossEl) {
+    fpCrossEl = document.createElement('div'); fpCrossEl.id = 'fpCross';
+    (document.getElementById('stage3d') || document.body).appendChild(fpCrossEl);
+  }
+  fpCrossEl.style.display = show ? '' : 'none';
+}
 function enterFP() {
   if (fpMode) return;
-  fpMode = true; controls.enabled = false; camTween = null;
-  camera.fov = 68; camera.updateProjectionMatrix();
-  camera.position.set(0, 1.35, 6); camera.lookAt(0, 1.35, 0);
-  placeWorkers();
+  fpMode = true; fpBob = 0; controls.enabled = false; camTween = null;
+  camera.fov = 70; camera.updateProjectionMatrix();
+  camera.position.set(0, 1.6, 6); camera.lookAt(0, 1.6, 0);
+  placeWorkers(); fpCrosshair(true);
   fpControls.lock();
   const b = document.getElementById('btnFP'); if (b) { b.textContent = '⤺ Exit'; b.classList.add('on'); }
-  say('First person — WASD to walk, mouse to look, Esc to exit');
+  say('First person — WASD to walk, Shift to sprint, mouse to look, Esc to exit');
 }
 function exitFP() {
   if (!fpMode) return;
@@ -551,7 +559,7 @@ function exitFP() {
   camera.fov = 38; camera.updateProjectionMatrix();
   camera.position.copy(CAM_HOME); camera.lookAt(CAM_TARGET);
   controls.target.copy(CAM_TARGET); controls.update();
-  placeWorkers();
+  placeWorkers(); fpCrosshair(false);
   const b = document.getElementById('btnFP'); if (b) { b.textContent = '🧍 Walk'; b.classList.remove('on'); }
 }
 fpControls.addEventListener('unlock', () => { if (fpMode) exitFP(); });
@@ -946,22 +954,54 @@ function updateWorkers(dt, t) {
   });
 }
 
-/* ---- space mode: starfield + shooting stars ---- */
+/* ---- space mode: starfield, bright stars, galaxies + shooting stars ---- */
 const starGeo = new THREE.BufferGeometry();
-const starPos = [], starPhase = [];
-for (let i = 0; i < 1400; i++) {
-  const r = 55 + Math.random() * 35;
+const starPos = [], starCol = [];
+const STAR_TINTS = [[1, 1, 1], [0.78, 0.85, 1], [1, 0.9, 0.78], [0.85, 0.9, 1], [1, 0.96, 0.88]];
+for (let i = 0; i < 2600; i++) {
+  const r = 55 + Math.random() * 42;
   const th = Math.random() * Math.PI * 2;
-  const y = 4 + Math.random() * 55;
+  const y = 3 + Math.random() * 62;
   const rr = Math.sqrt(Math.max(0, r * r - y * y));
   starPos.push(Math.cos(th) * rr, y, Math.sin(th) * rr);
-  starPhase.push(Math.random() * Math.PI * 2);
+  const tint = STAR_TINTS[(Math.random() * STAR_TINTS.length) | 0]; starCol.push(tint[0], tint[1], tint[2]);
 }
 starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.42, sizeAttenuation: true, transparent: true, opacity: 0.85 });
+starGeo.setAttribute('color', new THREE.Float32BufferAttribute(starCol, 3));
+const starMat = new THREE.PointsMaterial({ size: 0.4, sizeAttenuation: true, transparent: true, opacity: 0.85, vertexColors: true });
 const starfield = new THREE.Points(starGeo, starMat);
-starfield.visible = false;
-scene.add(starfield);
+starfield.visible = false; scene.add(starfield);
+
+/* a sparser layer of bright, additive "close" stars that twinkle */
+const brightGeo = new THREE.BufferGeometry(); const bp = [];
+for (let i = 0; i < 170; i++) { const r = 50 + Math.random() * 40, th = Math.random() * 6.28, y = 4 + Math.random() * 56, rr = Math.sqrt(Math.max(0, r * r - y * y)); bp.push(Math.cos(th) * rr, y, Math.sin(th) * rr); }
+brightGeo.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3));
+const brightMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.1, sizeAttenuation: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+const brightStars = new THREE.Points(brightGeo, brightMat);
+brightStars.visible = false; scene.add(brightStars);
+
+/* galaxies / nebulae — soft glowing coloured sprites drifting far out in the sky */
+const galaxyTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const grd = g.createRadialGradient(128, 128, 3, 128, 128, 128);
+  grd.addColorStop(0, 'rgba(255,255,255,0.95)'); grd.addColorStop(0.25, 'rgba(255,255,255,0.34)');
+  grd.addColorStop(0.55, 'rgba(255,255,255,0.11)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  for (let k = 0; k < 280; k++) { const a = Math.random() * 6.28, rr = Math.pow(Math.random(), 0.6) * 118; g.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.6) + ')'; g.fillRect(128 + Math.cos(a) * rr, 128 + Math.sin(a) * rr, 1.4, 1.4); }
+  return new THREE.CanvasTexture(c);
+})();
+const GAL_COLORS = [0x9a6bff, 0x4f86ff, 0xff6bbf, 0x36d6cf, 0xffb05a, 0x7d8bff];
+const galaxies = [];
+for (let k = 0; k < 6; k++) {
+  const mat = new THREE.SpriteMaterial({ map: galaxyTex, color: GAL_COLORS[k % GAL_COLORS.length], transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
+  const s = new THREE.Sprite(mat);
+  const th = (k / 6) * 6.28 + Math.random(), R = 60 + Math.random() * 20, y = 12 + Math.random() * 44;
+  s.position.set(Math.cos(th) * R, y, Math.sin(th) * R);
+  const sc = 20 + Math.random() * 24; s.scale.set(sc, sc, 1);
+  s.material.rotation = Math.random() * 6.28;
+  s.userData = { spin: (Math.random() - 0.5) * 0.05, tw: Math.random() * 6.28 };
+  s.visible = false; scene.add(s); galaxies.push(s);
+}
 
 const shooters = [];
 for (let i = 0; i < 10; i++) {
@@ -978,6 +1018,8 @@ function setSpaceMode(on) {
   scene.fog.color.set(on ? 0x0a0d1c : 0xcfeaf7);
   scene.fog.near = on ? 34 : 30; scene.fog.far = on ? 90 : 70;
   starfield.visible = on;
+  brightStars.visible = on;
+  galaxies.forEach(g => g.visible = on);
   sun.intensity = on ? 0.55 : 1.6;
   sun.color.set(on ? 0xaFC0FF : 0xfff2d8);
   hemi.intensity = on ? 0.5 : 1.0;
@@ -990,6 +1032,8 @@ function setSpaceMode(on) {
 function updateSpace(dt, t) {
   if (!spaceMode) { shooters.forEach(s => { if (s.mesh.visible) s.mesh.visible = false; }); return; }
   starMat.opacity = 0.7 + Math.sin(t * 1.6) * 0.15;
+  brightMat.opacity = 0.65 + Math.abs(Math.sin(t * 2.3)) * 0.3;   // twinkle
+  galaxies.forEach(g => { g.material.rotation += g.userData.spin * dt; g.material.opacity = 0.4 + Math.sin(t * 0.5 + g.userData.tw) * 0.13; });
   shootTimer -= dt;
   if (shootTimer <= 0) {
     const s = shooters.find(x => !x.mesh.visible);
@@ -2161,14 +2205,20 @@ function animate(ts) {
   const dt = Math.max(0.001, Math.min(0.05, t - lastT || 0.016));
   lastT = t;
   if (fpMode) {
+    let moving = false, sprint = false;
     if (fpControls.isLocked) {
-      const spd = (fpKeys['ShiftLeft'] || fpKeys['ShiftRight'] ? 7 : 3.5) * dt;
-      if (fpKeys['KeyW'] || fpKeys['ArrowUp']) fpControls.moveForward(spd);
-      if (fpKeys['KeyS'] || fpKeys['ArrowDown']) fpControls.moveForward(-spd);
-      if (fpKeys['KeyA'] || fpKeys['ArrowLeft']) fpControls.moveRight(-spd);
-      if (fpKeys['KeyD'] || fpKeys['ArrowRight']) fpControls.moveRight(spd);
+      sprint = !!(fpKeys['ShiftLeft'] || fpKeys['ShiftRight']);
+      const spd = (sprint ? 8.5 : 4.6) * dt;
+      if (fpKeys['KeyW'] || fpKeys['ArrowUp']) { fpControls.moveForward(spd); moving = true; }
+      if (fpKeys['KeyS'] || fpKeys['ArrowDown']) { fpControls.moveForward(-spd); moving = true; }
+      if (fpKeys['KeyA'] || fpKeys['ArrowLeft']) { fpControls.moveRight(-spd); moving = true; }
+      if (fpKeys['KeyD'] || fpKeys['ArrowRight']) { fpControls.moveRight(spd); moving = true; }
     }
-    camera.position.y = 1.35;
+    const targetFov = (sprint && moving) ? 76 : 70;   // little FOV kick when sprinting
+    camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 6); camera.updateProjectionMatrix();
+    if (moving) fpBob += dt * (sprint ? 15 : 10.5);    // footstep head-bob
+    const bob = moving ? Math.sin(fpBob) * 0.05 : 0;
+    camera.position.y = 1.6 + bob;
     camera.position.x = Math.max(-26, Math.min(26, camera.position.x));
     camera.position.z = Math.max(-26, Math.min(26, camera.position.z));
   } else if (camTween) {
