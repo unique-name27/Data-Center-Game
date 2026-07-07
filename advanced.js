@@ -1309,9 +1309,8 @@ function syncScene() {
 }
 /* ---- wiring: each cable is a clean raised arc between its two devices — easy to
    see and to click. Retimers ride the arc at a parameter t (0..1) along it. ---- */
-let wireStyle = 'routed';   // 'routed' = flat, grid-routed in non-overlapping lanes · 'arc' = raised
-try { if (localStorage.getItem('dct3d_wire') === 'arc') wireStyle = 'arc'; } catch (e) {}
-const cableFan = c => ((c.id * 2654435761) >>> 0) % 1000 / 1000;   // stable 0..1 per cable
+const wireStyle = 'routed';   // flat, grid-routed in non-overlapping lanes
+try { localStorage.removeItem('dct3d_wire'); } catch (e) {}
 /* --- flat grid router: wires run in the gutters between tiles, each in its own
    lane so they never overlap; L-shaped, raised just enough to read clearly --- */
 const ROUTE_Y = 0.13;
@@ -1378,27 +1377,11 @@ function routeCables() {
     cableRoutes.set(c.id, pts);
   });
 }
-function arcCurveFor(c) {
-  const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
-  if (!A || !B) return new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0.05, 0.6, 0), new THREE.Vector3(0.1, 0.5, 0));
-  const ca = entCenter(A), cb = entCenter(B);
-  const a = new THREE.Vector3(ca.x, 0.42, ca.z);
-  const b = new THREE.Vector3(cb.x, 0.42, cb.z);
-  const dist = a.distanceTo(b);
-  const f = cableFan(c);
-  const dir = new THREE.Vector3().subVectors(b, a); dir.y = 0;
-  const perp = new THREE.Vector3(-dir.z, 0, dir.x); if (perp.lengthSq() > 1e-6) perp.normalize();
-  const side = (f - 0.5) * Math.min(1.1, 0.25 + dist * 0.14);
-  const lift = 0.55 + dist * 0.2 + f * 0.4;
-  const mid = a.clone().lerp(b, 0.5).addScaledVector(perp, side); mid.y += lift;
-  return new THREE.QuadraticBezierCurve3(a, mid, b);
-}
-function routedCurveFor(c) {
+function cableCurveFor(c) {
   const pts = cableRoutes.get(c.id);
   if (!pts) return new THREE.CatmullRomCurve3([new THREE.Vector3(0, ROUTE_Y, 0), new THREE.Vector3(0.1, ROUTE_Y, 0)]);
   return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.05);
 }
-function cableCurveFor(c) { return wireStyle === 'arc' ? arcCurveFor(c) : routedCurveFor(c); }
 /* raycast the wires under the cursor → the cable + the point/param nearest the hit */
 function pickWire(ev) {
   raycaster.setFromCamera(pointerNdc(ev), camera);
@@ -2435,18 +2418,6 @@ showFact(true);
 setInterval(factTick, 13000);
 requestAnimationFrame(animate);
 
-/* wire-style toggle: flat grid-routed ⇄ raised arcs */
-function setWireStyle(s) { wireStyle = s; try { localStorage.setItem('dct3d_wire', s); } catch (e) {} rebuildCables(); }
-(function () {
-  const b = document.createElement('button');
-  b.id = 'btnWire'; b.type = 'button'; b.title = 'Wire style: flat grid-routed ⇄ raised arcs';
-  const upd = () => { b.textContent = wireStyle === 'routed' ? '〰 Flat wires' : '⌒ Arc wires'; };
-  b.onclick = () => { setWireStyle(wireStyle === 'routed' ? 'arc' : 'routed'); upd(); };
-  const host = document.getElementById('hudBtns');
-  if (host) host.insertBefore(b, host.firstChild);
-  upd();
-})();
-
 /* first-person "walk the floor" button */
 (function () {
   const b = document.createElement('button');
@@ -2514,6 +2485,6 @@ window.G3D = {
   enterIsland, exitIsland, nearestServerIsland, serverWorks, get islandEdit() { return islandEdit; }, get carriedServer() { return carriedServer; },
   enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
   get cableCurves() { return cableCurves; }, get retimers() { return S.retimers; },
-  setWireStyle, get wireStyle() { return wireStyle; }, get cableRoutes() { return cableRoutes; },
+  get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
