@@ -2421,7 +2421,8 @@ const FACTS = [
   '<b>800G</b> is today’s top networking speed per port: 800 gigabits every second down a single cable.',
   'The <b>retimer</b> market barely existed a decade ago — AI’s hunger for bandwidth turned it into a multi-billion-dollar business.',
   'A hyperscale data center can hold <b>hundreds of thousands</b> of GPUs, all needing to talk to each other.',
-  'Every <b>port</b> is a budget: a CPU has only so many lanes to hand out — which is exactly why PCIe switches (fan-out) matter.'
+  'Every <b>port</b> is a budget: a CPU has only so many lanes to hand out — which is exactly why PCIe switches (fan-out) matter.',
+  '<b>Tip:</b> wires look like a tangled mess? <b>Drag your components apart</b> — spacing parts out gives each wire its own clean lane instead of crossing others.'
 ];
 /* facts relevant to the selected item — the box tailors itself to what you're holding/clicking */
 const ITEM_FACTS = {
