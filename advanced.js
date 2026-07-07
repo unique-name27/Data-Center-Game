@@ -509,10 +509,10 @@ controls.target.set(0, 0, 0.6);
 controls.enablePan = false;
 controls.minDistance = 8;
 controls.maxDistance = 26;
-controls.minPolarAngle = 0.35;
-controls.maxPolarAngle = 1.15;
-controls.minAzimuthAngle = -0.9;
-controls.maxAzimuthAngle = 0.9;
+controls.minPolarAngle = 0.25;
+controls.maxPolarAngle = 1.35;
+controls.minAzimuthAngle = -Infinity;   // full 360° orbit around the map
+controls.maxAzimuthAngle = Infinity;
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 controls.enableDamping = true;
