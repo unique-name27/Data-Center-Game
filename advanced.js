@@ -1374,6 +1374,34 @@ let cableGroup = new THREE.Group();
 scene.add(cableGroup);
 const cableCurves = new Map();
 
+/* mini-servers: in the hall, draw each island's real inner components as tiny
+   blocks on top of it, so you can see what's inside every server without drilling in */
+let miniGroup = new THREE.Group();
+scene.add(miniGroup);
+const MINI_COL = { cpu: 0x3b6ccf, gpu: 0x57e389, mem: 0x2fb36a, pswitch: 0xf5c542, memctl: 0x9a6bff, nic: 0x36d6cf, retimer: 0x8dffb8 };
+function renderMiniServers() {
+  scene.remove(miniGroup); miniGroup = new THREE.Group(); scene.add(miniGroup);
+  if (!S.level.islands || islandEdit) return;
+  const scale = 0.14, y = 0.12;
+  const lp = (i, j, sz) => [(tX(i) + (sz[0] - 1) / 2) * scale, (tZ(j) + (sz[1] - 1) / 2) * scale];
+  S.ents.forEach(srv => {
+    if (srv.type !== 'srv' || !srv.inner) return;
+    const cx = tX(srv.i), cz = tZ(srv.j);
+    (srv.inner.ents || []).forEach(ie => {
+      const sz = esize(ie.type);
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.8 * scale * (sz[0] > 1 ? 1.9 : 1), 0.08, 0.8 * scale * (sz[1] > 1 ? 1.9 : 1)), toon(MINI_COL[ie.type] || 0x9aa4b0));
+      const p = lp(ie.i, ie.j, sz); box.position.set(cx + p[0], y, cz + p[1]); box.castShadow = true;
+      miniGroup.add(box);
+    });
+    (srv.inner.cables || []).forEach(c => {
+      const A = srv.inner.ents.find(e => e.id === c.a), B = srv.inner.ents.find(e => e.id === c.b);
+      if (!A || !B) return;
+      const a = lp(A.i, A.j, esize(A.type)), b = lp(B.i, B.j, esize(B.type));
+      const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(cx + a[0], y - 0.02, cz + a[1]), new THREE.Vector3(cx + b[0], y - 0.02, cz + b[1])]);
+      miniGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xd9a326, transparent: true, opacity: 0.85 })));
+    });
+  });
+}
 function syncScene() {
   /* entities */
   const liveIds = new Set(S.ents.map(e => e.id));
@@ -1410,6 +1438,7 @@ function syncScene() {
     }
   });
   rebuildCables();
+  renderMiniServers();
 }
 /* ---- wiring: each cable is a clean raised arc between its two devices — easy to
    see and to click. Retimers ride the arc at a parameter t (0..1) along it. ---- */
