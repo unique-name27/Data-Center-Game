@@ -137,9 +137,9 @@ const LEVELS = [
         hint: 'Keep adding servers, building each one, and cabling to the core — <b>AEC</b> for near islands, <b>AOC</b> for the far ones.' }
     ],
     lesson: `<h2>Advanced — one continuous hall</h2>
-      <p>This is your whole data hall in one persistent world — and you move through it by <b>zooming</b>.</p>
-      <p><b>Scroll in</b> on a server island to dive inside and build its board: CPUs, GPUs, memory, PCIe traces and retimers. <b>Scroll out</b> to pull back to the hall and wire your servers to the core switch with <b>AEC</b> / <b>AOC</b> cables. Everything you build stays put.</p>
-      <p class="tip">Start by scrolling into the little server island in the corner and bringing a GPU online.</p>`
+      <p>You're standing on your <b>first server's board</b>. Build it: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b>, wire them with <b>PCIe traces</b> (add <b>retimers</b> on long runs), and bring a GPU online.</p>
+      <p>Then <b>scroll your mouse wheel out</b> (or hit the <b>↖ Back to the data hall</b> button) to pull back to the whole hall, where you wire your servers to the core switch with <b>AEC</b> / <b>AOC</b> cables. <b>Scroll in</b> on any island to dive back into it. Everything you build stays put.</p>
+      <p class="tip">One world, two scales — zoom in to build a server, zoom out to connect the hall.</p>`
   },
   {
     title: 'Lesson 1 — Inside the server',
@@ -1999,6 +1999,12 @@ function startLevel(idx) {
   buildSurvivalControls();
   if (crossScale) beginScaleZoom(!!S.level.islands && !wasIsland);
   showLesson();
+  /* the campaign drops you straight onto your first server's board — so there's
+     always something to build the instant you arrive; scroll out to reach the hall */
+  if (S.level.campaign) {
+    const first = S.ents.find(e => e.type === 'srv');
+    if (first) enterIsland(first);
+  }
 }
 
 $('btnMode').onclick = () => startLevel((S.level.sandbox || S.level.survival) ? 0 : serverSandboxIdx());
