@@ -729,6 +729,19 @@ const ocean = new THREE.Mesh(
 ocean.position.y = -1.75;
 scene.add(ocean);
 
+/* deep-space floor shown under the islands in space mode (instead of the blue sea):
+   a dark disc with a faint nebula glow and scattered stars */
+const spaceFloor = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d');
+  g.fillStyle = '#05060d'; g.fillRect(0, 0, 512, 512);
+  const grd = g.createRadialGradient(256, 256, 20, 256, 256, 256);
+  grd.addColorStop(0, 'rgba(70,58,125,0.4)'); grd.addColorStop(0.45, 'rgba(34,32,78,0.18)'); grd.addColorStop(1, 'rgba(5,6,13,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 512, 512);
+  for (let k = 0; k < 700; k++) { g.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.5) + ')'; g.fillRect(Math.random() * 512, Math.random() * 512, Math.random() < 0.12 ? 2 : 1, 1); }
+  const m = new THREE.Mesh(new THREE.CircleGeometry(62, 48), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), fog: true }));
+  m.rotation.x = -Math.PI / 2; m.position.y = -2.5; m.visible = false; scene.add(m); return m;
+})();
+
 /* grid is inset by fx/fz (0..0.5 fraction) so the drawn cells line up
    exactly with the tile centres where components are placed */
 function grassTexture(cols, rows, fx, fz) {
@@ -1025,7 +1038,8 @@ function setSpaceMode(on) {
   hemi.intensity = on ? 0.5 : 1.0;
   hemi.color.set(on ? 0x8595c8 : 0xffffff);
   hemi.groundColor.set(on ? 0x1b2340 : 0xa8d8a0);
-  if (typeof ocean !== 'undefined') ocean.material.color.set(on ? 0x0c1a33 : 0x8fd9ec);
+  if (typeof ocean !== 'undefined') { ocean.visible = !on; ocean.material.color.set(0x8fd9ec); }  // no blue sea in space
+  if (typeof spaceFloor !== 'undefined') spaceFloor.visible = on;   // faint starry void beneath instead
   clouds.forEach(c => c.visible = !on);
   if (typeof dayProps !== 'undefined') dayProps.forEach(p => p.visible = !on);
 }
