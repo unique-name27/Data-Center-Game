@@ -295,11 +295,10 @@ function fits(type, i, j, ignore) {
   if (i < 0 || j < 0 || i + s[0] > GRID_W || j + s[1] > GRID_H) return false;
   for (let a = 0; a < s[0]; a++) for (let b = 0; b < s[1]; b++) {
     const e = entCovering(i + a, j + b);
-    if ((e && e !== ignore) || retAt(i + a, j + b)) return false;
+    if (e && e !== ignore) return false;
   }
   return true;
 }
-function retAt(i, j) { return S.retimers.find(r => r.i === i && r.j === j); }
 function lPath(a, b) {
   const p = [{ i: a.i, j: a.j }];
   let i = a.i, j = a.j;
@@ -310,14 +309,19 @@ function lPath(a, b) {
 
 /* ---------------- simulation ---------------- */
 function recompute() {
+  /* drop retimers whose wire is gone, then walk each cable applying its own retimers */
+  S.retimers = S.retimers.filter(r => S.cables.some(c => c.id === r.cableId));
   S.cables.forEach(c => {
     const loss = CAB[c.type].loss * lossMul();
+    const stops = CAB[c.type].retime
+      ? S.retimers.filter(r => r.cableId === c.id).map(r => Math.max(1, Math.round(r.t * (c.path.length - 1))))
+      : [];
     let h = 100, dead = false;
     c.health = [100]; c.failAt = -1;
     for (let k = 1; k < c.path.length; k++) {
       h -= loss;
       if (!dead && h < FAIL) { dead = true; c.failAt = k; }
-      if (!dead && CAB[c.type].retime && retAt(c.path[k].i, c.path[k].j)) h = 100;
+      if (!dead && stops.includes(k)) h = 100;
       c.health.push(Math.max(0, h));
     }
     c.ok = !dead;
@@ -430,12 +434,11 @@ function tryPlaceEnt(type, i, j) {
   recompute();
   if (isIsland(type)) refreshIslands();
 }
-function tryPlaceRet(i, j, cid) {
-  if (entCovering(i, j)) return say('Retimers go on the cable run, not on a device.');
-  if (retAt(i, j)) return say('There is already a retimer here.');
-  if (!S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j)))
-    return say('Place retimers on a cable route — hover over a wire.');
-  S.retimers.push({ i, j, cid });   // cid = the wire the player aimed at, so it sits on that one
+function tryPlaceRet(cableId, t) {
+  const c = S.cables.find(x => x.id === cableId);
+  if (!c) return say('Hover over a wire, then click to add a retimer.');
+  if (!CAB[c.type].retime) return say(`${CAB[c.type].name} already has retimers built into its plugs.`);
+  S.retimers.push({ id: idSeq++, cableId, t });
   recompute();
 }
 function portCount(e) { return S.cables.filter(c => c.a === e.id || c.b === e.id).length; }
@@ -450,28 +453,6 @@ function tryCable(type, A, B) {
   S.cables.push({ id: idSeq++, type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 });
   recompute();
 }
-/* when cables reroute, any retimer that fell off its wire slides to the nearest
-   free tile on a copper route so it stays on the line and keeps working */
-function resnapRetimers() {
-  const onRoute = r => S.cables.some(c => CAB[c.type].retime && c.path.some(p => p.i === r.i && p.j === r.j));
-  const removed = [];
-  S.retimers.forEach(r => {
-    if (onRoute(r)) return;
-    let best = null, bd = 1e9;
-    S.cables.forEach(c => {
-      if (!CAB[c.type].retime) return;
-      c.path.forEach(p => {
-        if (entCovering(p.i, p.j)) return;
-        if (S.retimers.some(x => x !== r && x.i === p.i && x.j === p.j)) return;
-        const d = (p.i - r.i) * (p.i - r.i) + (p.j - r.j) * (p.j - r.j);
-        if (d < bd) { bd = d; best = p; }
-      });
-    });
-    if (best) { r.i = best.i; r.j = best.j; }
-    else removed.push(r);
-  });
-  if (removed.length) { S.retimers = S.retimers.filter(r => removed.indexOf(r) < 0); say('Removed a retimer — no copper wire left for it.'); }
-}
 function moveEnt(ent, i, j) {
   if (ent.locked) return say('That one is fixed — it can’t be moved.');
   if (i === ent.i && j === ent.j) return;
@@ -485,7 +466,6 @@ function moveEnt(ent, i, j) {
       c.pulses = [];
     }
   });
-  resnapRetimers();
   recompute();
   if (isIsland(ent.type)) refreshIslands();
 }
@@ -498,6 +478,7 @@ function removeThing(th) {
     S.ents = S.ents.filter(e => e !== th.ent);
   } else if (th.kind === 'cable') {
     S.cables = S.cables.filter(c => c !== th.cable);
+    S.retimers = S.retimers.filter(r => r.cableId !== th.cable.id);   // its retimers go with it
   } else if (th.kind === 'ret') {
     S.retimers = S.retimers.filter(r => r !== th.ret);
   }
@@ -585,10 +566,10 @@ const SERVER_TOOLS = ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'retime
 /* deep-copy a {ents,cables,retimers} build with fresh ids */
 function cloneBuild(b) {
   if (!b) return { ents: [], cables: [], retimers: [] };
-  const map = new Map();
+  const map = new Map(), cmap = new Map();
   const ents = b.ents.map(e => { const ne = { id: idSeq++, type: e.type, i: e.i, j: e.j }; map.set(e.id, ne.id); return ne; });
-  const cables = b.cables.map(c => ({ id: idSeq++, type: c.type, a: map.get(c.a), b: map.get(c.b), path: c.path.map(p => ({ i: p.i, j: p.j })), pulses: [], nextPulse: 0 }));
-  const retimers = b.retimers.map(r => ({ i: r.i, j: r.j }));
+  const cables = b.cables.map(c => { const nid = idSeq++; cmap.set(c.id, nid); return { id: nid, type: c.type, a: map.get(c.a), b: map.get(c.b), path: c.path.map(p => ({ i: p.i, j: p.j })), pulses: [], nextPulse: 0 }; });
+  const retimers = (b.retimers || []).map(r => ({ id: idSeq++, cableId: cmap.get(r.cableId), t: r.t })).filter(r => r.cableId != null);
   return { ents, cables, retimers };
 }
 /* how many GPUs come online inside a stand-alone server build (pure, no side effects) */
@@ -597,7 +578,8 @@ function serverOnlineCount(build) {
   const rets = build.retimers || [];
   const ok = c => {
     const loss = CAB[c.type].loss; let h = 100;
-    for (let k = 1; k < c.path.length; k++) { h -= loss; if (h < FAIL) return false; if (CAB[c.type].retime && rets.some(r => r.i === c.path[k].i && r.j === c.path[k].j)) h = 100; }
+    const stops = CAB[c.type].retime ? rets.filter(r => r.cableId === c.id).map(r => Math.max(1, Math.round(r.t * (c.path.length - 1)))) : [];
+    for (let k = 1; k < c.path.length; k++) { h -= loss; if (h < FAIL) return false; if (stops.includes(k)) h = 100; }
     return true;
   };
   const adj = new Map(); build.ents.forEach(e => adj.set(e.id, []));
@@ -1309,169 +1291,80 @@ function syncScene() {
     }
     m.userData.target = entCenter(e);
   });
-  /* retimers */
-  const rKey = r => r.i + ',' + r.j;
-  const liveR = new Set(S.retimers.map(rKey));
+  /* retimers — keyed by id, positioned on their cable's arc by positionRetimers */
+  const liveR = new Set(S.retimers.map(r => r.id));
   [...retMeshes.keys()].forEach(k => {
     if (!liveR.has(k)) { scene.remove(retMeshes.get(k)); retMeshes.delete(k); }
   });
   S.retimers.forEach(r => {
-    if (!retMeshes.has(rKey(r))) {
+    if (!retMeshes.has(r.id)) {
       const m = buildRetimerMesh();
-      m.position.set(tX(r.i), 0.02, tZ(r.j));
       m.userData.ret = r;
-      m.traverse(o => { o.userData.retKey = rKey(r); });
+      m.traverse(o => { o.userData.retId = r.id; });
       scene.add(m);
-      retMeshes.set(rKey(r), m);
+      retMeshes.set(r.id, m);
     }
   });
   rebuildCables();
 }
-/* ---- channel router: wires run along the gridlines between tiles, each in its
-   own lane so they never overlap, auto-routed L-shapes crossing under devices. ---- */
-let cableRoutes = new Map();
-function nodeX(gi) { return gi - GRID_W / 2; }        // world x of vertical gridline gi (0..GRID_W)
-function nodeZ(gj) { return gj - GRID_H / 2; }        // world z of horizontal gridline gj (0..GRID_H)
-function laneShift(k) { return k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.27; }
-/* fan a cable's attach point out along the device edge (perpendicular to the
-   direction it heads off in) so several wires on one device never share a stub */
-function attachPt(cx, cz, tx, tz, idx, n) {
-  if (n <= 1) return [cx, cz];
-  let dx = tx - cx, dz = tz - cz; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-  const off = (idx - (n - 1) / 2) * Math.min(0.26, 0.95 / n);
-  return [cx + (-dz) * off, cz + dx * off];
-}
-function devCorners(e) { const s = esize(e.type); return [[e.i, e.j], [e.i + s[0], e.j], [e.i, e.j + s[1]], [e.i + s[0], e.j + s[1]]]; }
-function pickNode(dev, other) {
-  const oc = entCenter(other); let best = [dev.i, dev.j], bd = 1e9;
-  devCorners(dev).forEach(([gi, gj]) => { const dx = nodeX(gi) - oc.x, dz = nodeZ(gj) - oc.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = [gi, gj]; } });
-  return { gi: best[0], gj: best[1] };
-}
-function routeCables() {
-  cableRoutes = new Map();
-  const horiz = {}, vert = {}, meta = {};
-  S.cables.forEach(c => {
-    const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
-    if (!A || !B) return;
-    const na = pickNode(A, B), nb = pickNode(B, A);
-    meta[c.id] = { A, B, na, nb };
-    (horiz[na.gj] = horiz[na.gj] || []).push({ id: c.id, a: Math.min(na.gi, nb.gi), b: Math.max(na.gi, nb.gi) });
-    (vert[nb.gi] = vert[nb.gi] || []).push({ id: c.id, a: Math.min(na.gj, nb.gj), b: Math.max(na.gj, nb.gj) });
-  });
-  const laneH = {}, laneV = {};
-  const alloc = (groups, out) => {
-    Object.keys(groups).forEach(key => {
-      const lanes = [];
-      groups[key].forEach(it => {
-        let k = 0;
-        /* <=/>= (not </>) so cables that merely TOUCH at a shared junction or
-           device corner still take different lanes — otherwise their entry stubs
-           (device centre → that corner) stack exactly on top of each other. */
-        for (; ; k++) { const occ = lanes[k] || (lanes[k] = []); if (!occ.some(r => it.a <= r[1] && it.b >= r[0])) { occ.push([it.a, it.b]); break; } }
-        out[it.id] = k;
-      });
-    });
-  };
-  alloc(horiz, laneH); alloc(vert, laneV);
-  /* index every cable within each device so we can fan their attach points apart */
-  const devCables = {};
-  S.cables.forEach(c => { const m = meta[c.id]; if (!m) return;
-    (devCables[m.A.id] = devCables[m.A.id] || []).push(c.id);
-    (devCables[m.B.id] = devCables[m.B.id] || []).push(c.id); });
-  S.cables.forEach(c => {
-    const m = meta[c.id]; if (!m) return;
-    const offH = laneShift(laneH[c.id] || 0), offV = laneShift(laneV[c.id] || 0);
-    const y = 0.05 + ((c.id * 13) % 4) * 0.012;
-    const zLine = nodeZ(m.na.gj) + offH, xLine = nodeX(m.nb.gi) + offV;
-    const A = entCenter(m.A), B = entCenter(m.B);
-    const aL = devCables[m.A.id], bL = devCables[m.B.id];
-    const pa = attachPt(A.x, A.z, nodeX(m.na.gi), nodeZ(m.na.gj), aL.indexOf(c.id), aL.length);
-    const pb = attachPt(B.x, B.z, nodeX(m.nb.gi), nodeZ(m.nb.gj), bL.indexOf(c.id), bL.length);
-    const raw = [
-      new THREE.Vector3(pa[0], y, pa[1]),
-      new THREE.Vector3(nodeX(m.na.gi), y, zLine),
-      new THREE.Vector3(xLine, y, zLine),
-      new THREE.Vector3(xLine, y, nodeZ(m.nb.gj)),
-      new THREE.Vector3(pb[0], y, pb[1])
-    ];
-    const pts = raw.filter((p, k) => k === 0 || p.distanceToSquared(raw[k - 1]) > 0.0004);
-    if (pts.length < 2) pts.push(new THREE.Vector3(B.x + 0.01, y, B.z));
-    cableRoutes.set(c.id, pts);
-  });
-}
+/* ---- wiring: each cable is a clean raised arc between its two devices — easy to
+   see and to click. Retimers ride the arc at a parameter t (0..1) along it. ---- */
+function cableFan(c) { return ((c.id * 2654435761) >>> 0) % 1000 / 1000; }  // stable 0..1 per cable
 function cableCurveFor(c) {
-  const pts = cableRoutes.get(c.id);
-  if (!pts) return new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(0.1, 0.05, 0)]);
-  return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
+  const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
+  if (!A || !B) return new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(0.05, 0.6, 0), new THREE.Vector3(0.1, 0.5, 0));
+  const ca = entCenter(A), cb = entCenter(B);
+  const a = new THREE.Vector3(ca.x, 0.42, ca.z);
+  const b = new THREE.Vector3(cb.x, 0.42, cb.z);
+  const dist = a.distanceTo(b);
+  const f = cableFan(c);
+  const dir = new THREE.Vector3().subVectors(b, a); dir.y = 0;
+  const perp = new THREE.Vector3(-dir.z, 0, dir.x); if (perp.lengthSq() > 1e-6) perp.normalize();
+  const side = (f - 0.5) * Math.min(1.1, 0.25 + dist * 0.14);   // lean parallel wires apart
+  const lift = 0.55 + dist * 0.2 + f * 0.4;                     // arc height (varied so they don't stack)
+  const mid = a.clone().lerp(b, 0.5).addScaledVector(perp, side); mid.y += lift;
+  return new THREE.QuadraticBezierCurve3(a, mid, b);
 }
-/* where on the wire would a retimer at tile (i,j) actually sit? returns the
-   snapped point + facing, or null if that tile has no bare copper route under it.
-   used both to place real retimers and to prefit the placement ghost. */
-function snapToWire(i, j, preferId) {
-  const tx = tX(i), tz = tZ(j);
-  const cables = S.cables.filter(c => CAB[c.type].retime && c.path.some(p => p.i === i && p.j === j) && cableRoutes.get(c.id));
-  if (!cables.length) return null;
-  /* pin to the wire the player aimed at (preferId) if it still runs here; otherwise
-     the nearest one — so a retimer dropped between side-by-side wires stays put */
-  const pref = preferId !== undefined && cables.find(c => c.id === preferId);
-  const use = pref ? [pref] : cables;
-  let best = null, bd = 1e9, tan = null;
-  use.forEach(c => {
-    const curve = new THREE.CatmullRomCurve3(cableRoutes.get(c.id), false, 'catmullrom', 0.06);
-    for (let k = 0; k <= 40; k++) { const p = curve.getPointAt(k / 40); const d = (p.x - tx) * (p.x - tx) + (p.z - tz) * (p.z - tz); if (d < bd) { bd = d; best = p; tan = curve.getTangentAt(k / 40); } }
-  });
-  return best ? { x: best.x, z: best.z, rot: Math.atan2(tan.x, tan.z) } : null;
-}
-/* given a ground point (cursor), find the nearest retimeable wire and the best
-   free tile on it to drop a retimer — so you can aim at the wire, not a tile. */
-function pickRetimerTile(px, pz) {
-  let bestC = null, bestP = null, bd = 0.6 * 0.6;   // must be within ~0.6 units of a wire
-  S.cables.forEach(c => {
-    if (!CAB[c.type].retime) return;
-    const pts = cableRoutes.get(c.id); if (!pts) return;
-    const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.06);
-    for (let k = 0; k <= 48; k++) {
-      const p = curve.getPointAt(k / 48);
-      const d = (p.x - px) * (p.x - px) + (p.z - pz) * (p.z - pz);
-      if (d < bd) { bd = d; bestC = c; bestP = p; }
-    }
-  });
-  if (!bestC) return null;
-  /* on that wire, the free path tile whose centre is nearest the point we hit */
-  let bt = null, btd = 1e9;
-  bestC.path.forEach(pt => {
-    if (entCovering(pt.i, pt.j) || retAt(pt.i, pt.j)) return;
-    const d = (tX(pt.i) - bestP.x) ** 2 + (tZ(pt.j) - bestP.z) ** 2;
-    if (d < btd) { btd = d; bt = pt; }
-  });
-  if (!bt) return null;
-  /* snap to where the retimer will actually sit on the wire the cursor is nearest,
-     so the hover ghost and the dropped chip land on the same spot on the same wire */
-  const s = snapToWire(bt.i, bt.j, bestC.id);
-  return s ? { i: bt.i, j: bt.j, x: s.x, z: s.z, rot: s.rot, cid: bestC.id } : null;
+/* raycast the wires under the cursor → the cable + the point/param nearest the hit */
+function pickWire(ev) {
+  raycaster.setFromCamera(pointerNdc(ev), camera);
+  const hits = raycaster.intersectObjects(cableGroup.children, true);
+  for (const h of hits) {
+    const cid = h.object.userData.cableId;
+    if (cid === undefined) continue;
+    const c = S.cables.find(x => x.id === cid); if (!c) continue;
+    const curve = cableCurves.get(cid); if (!curve) continue;
+    let bt = 0, bd = 1e9;
+    for (let k = 1; k < 60; k++) { const t = k / 60; const p = curve.getPointAt(t); const d = p.distanceToSquared(h.point); if (d < bd) { bd = d; bt = t; } }
+    const p = curve.getPointAt(bt), tan = curve.getTangentAt(bt);
+    return { cable: c, t: bt, point: p, rot: Math.atan2(tan.x, tan.z), retimeable: !!CAB[c.type].retime };
+  }
+  return null;
 }
 function positionRetimers() {
   S.retimers.forEach(r => {
-    const mesh = retMeshes.get(r.i + ',' + r.j); if (!mesh) return;
-    const s = snapToWire(r.i, r.j, r.cid);
-    if (s) { mesh.position.set(s.x, 0.05, s.z); mesh.rotation.y = s.rot; }
-    else { mesh.position.set(tX(r.i), 0.05, tZ(r.j)); mesh.rotation.y = 0; }
+    const mesh = retMeshes.get(r.id); if (!mesh) return;
+    const curve = cableCurves.get(r.cableId);
+    if (!curve) { mesh.visible = false; return; }
+    mesh.visible = true;
+    const p = curve.getPointAt(r.t), tan = curve.getTangentAt(r.t);
+    mesh.position.set(p.x, p.y, p.z);
+    mesh.rotation.y = Math.atan2(tan.x, tan.z);
   });
 }
 function rebuildCables() {
   scene.remove(cableGroup);
   cableGroup = new THREE.Group();
   cableCurves.clear();
-  routeCables();
   S.cables.forEach(c => {
     if (drag && drag.lift && (c.a === drag.ent.id || c.b === drag.ent.id)) return;
     const curve = cableCurveFor(c);
     cableCurves.set(c.id, curve);
     const n = c.path.length - 1;
-    const segs = Math.max(8, n * 6);
+    const segs = Math.max(14, n * 8);
     if (c.ok && !c.down) {
       /* in the data hall, colour by utilisation (congestion) instead of cable type */
-      let mat, radius = 0.07;
+      let mat, radius = 0.085;
       if (c.util !== undefined) {
         const hex = c.util > 1.0 ? 0xe05555 : c.util > 0.7 ? 0xf5c542 : 0x43d15f;
         mat = new THREE.MeshToonMaterial({ color: hex, gradientMap: gradTex, emissive: hex, emissiveIntensity: c.util > 1.0 ? 0.55 : 0.12 });
@@ -1610,7 +1503,7 @@ const elasticGroup = new THREE.Group();
 scene.add(elasticGroup);
 /* drag-to-connect: a live rubber-band wire from the grabbed device to the cursor,
    coloured by the signal it would have, with a marker where it would die */
-let cableDrag = null;
+let cableDrag = null, retimerHover = null;
 const cableDragGroup = new THREE.Group();
 scene.add(cableDragGroup);
 function updateCablePreview(ev) {
@@ -1626,7 +1519,6 @@ function updateCablePreview(ev) {
   for (let k = 1; k < path.length; k++) {
     h -= spec.loss * lossMul();
     if (h < FAIL) { deadAt = k; break; }
-    if (spec.retime && retAt(path[k].i, path[k].j)) h = 100;
   }
   const reaches = deadAt < 0;
   const col = !reaches ? 0xe05555 : (h >= 65 ? 0x57e389 : 0xf5c542);
@@ -1664,7 +1556,6 @@ function updateElastics() {
     for (let k = 1; k < path.length; k++) {
       h -= spec.loss * lossMul();
       if (h < FAIL) { h = 0; break; }
-      if (spec.retime && retAt(path[k].i, path[k].j)) h = 100;
     }
     const col = h <= 0 ? 0xe05555 : (h >= 65 ? 0x57e389 : 0xf5c542);
     const a = om.position.clone().setY(0.3);
@@ -1741,9 +1632,8 @@ function thingFromPointer(ev) {
         const e = S.ents.find(x => x.id === o.userData.entId);
         if (e) return { kind: 'ent', ent: e };
       }
-      if (o.userData.retKey !== undefined) {
-        const [i, j] = o.userData.retKey.split(',').map(Number);
-        const r = retAt(i, j);
+      if (o.userData.retId !== undefined) {
+        const r = S.retimers.find(x => x.id === o.userData.retId);
         if (r) return { kind: 'ret', ret: r };
       }
       if (o.userData.cableId !== undefined) {
@@ -1773,9 +1663,11 @@ dom.addEventListener('pointermove', ev => {
     dom.style.cursor = 'grabbing';
     return;
   }
+  retimerHover = (S.tool === 'retimer') ? pickWire(ev) : null;
   const th = t && entCovering(t.i, t.j);
   const grabbable = th && !th.locked && !CAB[S.tool] && S.tool !== 'delete';
-  dom.style.cursor = grabbable ? 'grab' : (S.tool === 'select' ? 'default' : 'crosshair');
+  const overWire = (S.tool === 'retimer' && retimerHover && retimerHover.retimeable) || (S.tool === 'delete' && retimerHover);
+  dom.style.cursor = overWire ? 'pointer' : (grabbable ? 'grab' : (S.tool === 'select' ? 'default' : 'crosshair'));
 });
 dom.addEventListener('pointerdown', ev => {
   if (ev.button !== 0 || fpMode) return;
@@ -1787,7 +1679,7 @@ dom.addEventListener('pointerdown', ev => {
     return;
   }
   if (CAT[S.tool]) { if (tile) tryPlaceEnt(S.tool, tile.i, tile.j); return; }
-  if (S.tool === 'retimer') { if (tile) { const rt = pickRetimerTile(tile.x, tile.z) || tile; tryPlaceRet(rt.i, rt.j, rt.cid); } return; }
+  if (S.tool === 'retimer') { const w = pickWire(ev); if (w && w.retimeable) tryPlaceRet(w.cable.id, w.t); else say('Hover over a copper wire, then click to add a retimer.'); return; }
   if (CAB[S.tool]) {
     const e = tile && entCovering(tile.i, tile.j);
     if (!e) { say(S.pendA ? 'Click a device to finish the cable — Esc to cancel.' : 'Click a device, or drag from one to another, to lay a cable.'); return; }
@@ -2283,25 +2175,20 @@ function animate(ts) {
     hoverRing.position.set(tX(hoverTile.i) + (toolSize[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (toolSize[1] - 1) / 2);
     hoverRing.scale.setScalar(Math.max(toolSize[0], toolSize[1]));
   } else hoverRing.visible = false;
-  if (ghost && ghostType && hoverTile && !drag) {
+  if (ghost && ghostType === 'retimer' && !drag && !cableDrag) {
+    /* the retimer ghost rides the wire under the cursor, so you see exactly where
+       it will clamp on before you click */
+    if (retimerHover && retimerHover.retimeable) {
+      ghost.visible = true; ghost.scale.set(1.15, 1.15, 1.15);
+      ghost.position.copy(retimerHover.point); ghost.rotation.y = retimerHover.rot;
+      ghost.traverse(o => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(0x0a3a14); });
+    } else ghost.visible = false;
+  } else if (ghost && ghostType && hoverTile && !drag) {
     ghost.visible = true;
-    let bad;
-    if (ghostType === 'retimer') {
-      /* prefit the retimer onto the NEAREST wire to the cursor (same tile the
-         click will pick), so you aim at a wire, not a tile, and see where it lands */
-      const px = hoverTile.x !== undefined ? hoverTile.x : tX(hoverTile.i);
-      const pz = hoverTile.z !== undefined ? hoverTile.z : tZ(hoverTile.j);
-      const rt = pickRetimerTile(px, pz);
-      ghost.scale.set(1, 1, 1);
-      if (rt) { ghost.position.set(rt.x, 0.05, rt.z); ghost.rotation.y = rt.rot; }
-      else { ghost.position.set(tX(hoverTile.i), 0.02, tZ(hoverTile.j)); ghost.rotation.y = 0; }
-      bad = !rt;
-    } else {
-      const s = esize(ghostType);
-      ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
-      ghost.scale.set(...pieceScale(ghostType));
-      bad = !fits(ghostType, hoverTile.i, hoverTile.j);
-    }
+    const s = esize(ghostType);
+    ghost.position.set(tX(hoverTile.i) + (s[0] - 1) / 2, 0.02, tZ(hoverTile.j) + (s[1] - 1) / 2);
+    ghost.scale.set(...pieceScale(ghostType));
+    const bad = !fits(ghostType, hoverTile.i, hoverTile.j);
     ghost.traverse(o => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setHex(bad ? 0x881111 : 0x0a3a14); });
   } else if (ghost) ghost.visible = false;
 
@@ -2532,13 +2419,12 @@ requestAnimationFrame(animate);
 /* testing hooks */
 window.G3D = {
   get S() { return S; },
-  startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt, retAt,
+  startLevel, tryPlaceEnt, tryPlaceRet, tryCable, moveEnt, removeThing, entAt,
   setSpaceMode, get spaceMode() { return spaceMode; }, updateSpace,
   setSuite, setInterop, get suite() { return suite; }, get interop() { return interop; },
-  pickRetimerTile, snapToWire,
   recompute, dispatchEngineer, updateSurvival, updateCoach, get engineers() { return engineers; },
   enterIsland, exitIsland, nearestServerIsland, serverWorks, get islandEdit() { return islandEdit; }, get carriedServer() { return carriedServer; },
   enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
-  get cableRoutes() { return cableRoutes; },
+  get cableCurves() { return cableCurves; }, get retimers() { return S.retimers; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
