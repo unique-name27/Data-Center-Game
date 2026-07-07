@@ -626,8 +626,14 @@ function enterIsland(ent) {
   const inner = ent.inner || (ent.inner = { ents: [], cables: [], retimers: [] });
   islandEdit = { outerS: S, ent };
   const L = { title: 'Inside a server — build it, then scroll out', tools: SERVER_TOOLS, islands: false, sandbox: true, inner: true, pre: [],
-    goals: [{ text: 'Build a working server — bring one GPU online', check: s => s.stats.online >= 1,
-      hint: 'Place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b>, then <b>Trace</b> them together. When a GPU lights up, scroll out to connect this island.' }] };
+    goals: [
+      { text: 'Place a CPU on the board', check: s => s.ents.some(e => e.type === 'cpu'),
+        hint: 'Pick the <b>CPU</b> tool from the palette and click an empty tile. The CPU is the hub every part connects back to.' },
+      { text: 'Add memory — wire a DIMM to the CPU', check: s => s.stats.memsReach >= 1,
+        hint: 'Place a <b>Memory</b> (DIMM) next to the CPU, then pick <b>Trace</b>, click the CPU, then the DIMM (or just drag from one to the other).' },
+      { text: 'Bring a GPU online (it needs a CPU and memory)', check: s => s.stats.online >= 1,
+        hint: 'Place a <b>GPU</b> and trace it to the CPU. A GPU only lights up when it can reach a CPU <i>and</i> memory. On long copper runs, click the wire to drop a <b>retimer</b>.' }
+    ] };
   S = { idx: islandEdit.outerS.idx, level: L, ents: inner.ents, cables: inner.cables, retimers: inner.retimers,
     tool: 'select', pendA: null, selected: null, done: false,
     stats: { online: 0, tput: 0, watts: 0, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false } };
@@ -1974,11 +1980,13 @@ function updateGoals() {
     });
     return;
   }
+  let markedCurrent = false;   // the first unfinished goal is "the one to do next"
   S.level.goals.forEach(g => {
     const li = document.createElement('li');
     const ok = g.check(S);
-    li.className = ok ? 'done' : '';
-    li.textContent = (ok ? '✓ ' : '○ ') + g.text;
+    if (ok) { li.className = 'done'; li.textContent = '✓ ' + g.text; }
+    else if (!markedCurrent) { li.className = 'current'; li.textContent = '▸ ' + g.text; markedCurrent = true; }
+    else { li.textContent = '○ ' + g.text; }
     ul.appendChild(li);
   });
 }
@@ -2016,7 +2024,9 @@ function showCoach() {
 }
 function updateCoach(dt) {
   const modalOpen = $('modal').classList.contains('open');
-  const eligible = S.level && !S.level.sandbox && !S.level.survival && !S.done && !modalOpen;
+  /* campaign + the inside-a-server building step get coached; free-build/survival don't */
+  const guided = S.level && (S.level.campaign || S.level.inner);
+  const eligible = guided && !S.level.survival && !S.done && !modalOpen;
   if (!eligible) { hideCoach(); idleT = 0; lastSig = null; return; }
   const sig = progressSig();
   if (sig !== lastSig) { lastSig = sig; idleT = 0; hideCoach(); return; }  // made progress → re-arm

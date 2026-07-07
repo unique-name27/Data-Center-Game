@@ -11,7 +11,16 @@ A browser game that teaches how data actually moves inside a data center — and
 | 2D edition | **https://unique-name27.github.io/Data-Center-Game/** |
 | Classic prototype (Data Center Builder) | https://unique-name27.github.io/Data-Center-Game/classic.html |
 
-The **advanced edition** is a fork of the 3D edition being grown into one continuous, persistent world: **scroll in** on a server island to build its board, **scroll out** to wire the whole hall — your build stays put across every scale. Deeper topology (rows, halls, leaf-spine) and connectivity depth (more link types) are on the way.
+### 🧪 Advanced edition
+
+A fork of the 3D edition, grown into **one continuous, persistent world**. There are no separate lesson maps — you move through a single data hall by **zooming**:
+
+- **Scroll in** on a server island to dive onto its board and build the server; **scroll out** to pull back to the whole hall and wire your servers to the core. Your build stays put across every scale.
+- A **guided campaign** walks you through it with clear, step-by-step objectives that light up the current step and advance as you finish each one — *place a CPU → add memory → bring a GPU online* inside a server, then *cable it to the core → add more servers → add redundancy → grow the hall* out in the hall. Finishing an objective never wipes your progress.
+- Three modes on the same map: **Campaign** (guided, default), **Free build**, and **Survival**.
+- Extras: **flat grid-routed wires** you click to drop retimers on, a menagerie of **little critters** that wander every scale, a **first-person "walk the floor"** mode, and a full **360° camera** orbit.
+
+Deeper topology (rows, halls, leaf-spine) and connectivity depth (more link types) are on the way.
 
 No install, no accounts, no build step — it runs in any modern browser. The 3D edition loads [Three.js](https://threejs.org/) from a CDN, so it needs an internet connection; the 2D edition is fully offline.
 
