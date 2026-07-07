@@ -283,7 +283,11 @@ function newLevelState(idx) {
     const firstSrv = s.ents.find(e => e.type === 'srv');
     if (firstSrv) firstSrv.inner = cloneBuild(carriedServer);
   }
-  if (L.survival) s.survival = { time: 0, upNum: 0, upDen: 0, sinceFail: 6, ended: false };
+  /* survival islands come pre-built with a simple working server you can drill in and edit */
+  if (L.survival) {
+    s.ents.filter(e => e.type === 'srv').forEach(srv => { srv.inner = defaultServerBuild(); });
+    s.survival = { time: 0, upNum: 0, upDen: 0, sinceFail: 6, ended: false };
+  }
   return s;
 }
 /* footprints: GPUs are a wide 2x1 card, switches a chunky 2x2; the CPU stays
@@ -363,8 +367,8 @@ function recompute() {
       if (e.type !== 'srv') { e.online = false; return; }
       const links = healthy.filter(c => (c.a === e.id || c.b === e.id) && cores.some(k => k.id === (c.a === e.id ? c.b : c.a)));
       /* an island only comes online if it's cabled to a core AND its own server works
-         (built by scrolling in). Survival islands are abstract and skip this gate. */
-      e.working = S.level.survival ? true : serverWorks(e.inner);
+         (built or edited by scrolling in) — survival islands come pre-built so they work too */
+      e.working = serverWorks(e.inner);
       e.online = links.length > 0 && e.working;
       if (!e.online) { e.congested = false; return; }
       online++; tput += CAT.srv.tput;
@@ -584,6 +588,14 @@ function campaignIdx() { return LEVELS.findIndex(L => L.campaign); }
 function freeBuildIdx() { return LEVELS.findIndex(L => L.sandbox && L.islands && !L.survival); }
 const SERVER_TOOLS = ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'retimer'];
 
+/* a simple pre-built working server (CPU + GPU + DIMM, traced) for seeding islands */
+function defaultServerBuild() {
+  const cpu = { id: idSeq++, type: 'cpu', i: 6, j: 4 };
+  const gpu = { id: idSeq++, type: 'gpu', i: 8, j: 4 };
+  const mem = { id: idSeq++, type: 'mem', i: 6, j: 6 };
+  const mk = (a, b) => ({ id: idSeq++, type: 'trace', a: a.id, b: b.id, path: lPath(a, b), pulses: [], nextPulse: 0 });
+  return { ents: [cpu, gpu, mem], cables: [mk(cpu, gpu), mk(cpu, mem)], retimers: [] };
+}
 /* deep-copy a {ents,cables,retimers} build with fresh ids */
 function cloneBuild(b) {
   if (!b) return { ents: [], cables: [], retimers: [] };
@@ -647,6 +659,7 @@ function enterIsland(ent) {
     stats: { online: 0, tput: 0, watts: 0, memsReach: 0, switchUsed: false, nicUp: false, memctlUsed: false } };
   entMeshes.forEach(m => scene.remove(m)); entMeshes.clear();
   retMeshes.forEach(m => scene.remove(m)); retMeshes.clear();
+  engineers.forEach(e => e.mesh.visible = false);   // hide survival boats while on a server board
   buildWorld(L); buildToolbar(); showInspector(null); recompute();
   beginScaleZoom(false); backBtn(true); placeWorkers();
 }
@@ -657,9 +670,12 @@ function exitIsland() {
   islandEdit = null; S = outerS;
   entMeshes.forEach(m => scene.remove(m)); entMeshes.clear();
   retMeshes.forEach(m => scene.remove(m)); retMeshes.clear();
+  engineers.forEach(e => e.mesh.visible = true);   // survival boats back on the water
   buildWorld(S.level); buildToolbar(); showInspector(null); recompute();
   beginScaleZoom(true); backBtn(false); placeWorkers();
-  say(serverWorks(ent.inner) ? '✓ Server built — now cable this island to the core.' : 'This island’s server isn’t working yet — scroll back in to finish it.');
+  const msg = S.level.survival ? '✓ Changes saved to this server.'
+    : (serverWorks(ent.inner) ? '✓ Server built — now cable this island to the core.' : 'This island’s server isn’t working yet — scroll back in to finish it.');
+  say(msg);
 }
 renderer.domElement.addEventListener('wheel', ev => {
   if (!S || camTween) return;
@@ -678,12 +694,12 @@ renderer.domElement.addEventListener('wheel', ev => {
     } else overscroll = 0;
     return;
   }
-  /* on an island level → scroll IN over an island to drill into its server */
-  if (S.level.islands && !S.level.survival && ev.deltaY < 0 && nearIn) {
+  /* on any island level (including survival) → scroll IN over an island to edit its server */
+  if (S.level.islands && ev.deltaY < 0 && nearIn) {
     const ent = nearestServerIsland();
     if (ent) {
       overscroll += -ev.deltaY;
-      if (overscroll > 60) say('Keep scrolling in to build this server…');
+      if (overscroll > 60) say('Keep scrolling in to open this server…');
       if (overscroll > 240) { overscroll = 0; enterIsland(ent); }
       return;
     }
