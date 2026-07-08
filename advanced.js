@@ -131,7 +131,7 @@ const LEVELS = [
   {
     title: 'Campaign — four islands, one map', campaign: true,
     gw: MAP_GW, gh: MAP_GH, pads: MAP_PADS,
-    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
+    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [{ t: 'cpu', i: 8, j: 6 }],
     goals: [
       { text: 'Bring your first GPU online (it needs a CPU + memory)', check: s => s.stats.online >= 1,
@@ -140,15 +140,20 @@ const LEVELS = [
         hint: 'A CPU has only 4 ports. Place a <b>PCIe switch</b>, trace the CPU to it, then hang your GPUs off the switch.' },
       { text: 'Add more memory with a CXL controller', check: s => s.stats.memctlUsed,
         hint: 'Place a <b>CXL controller</b>, wire it to the CPU or switch, then trace <b>DIMMs</b> to it to add memory beyond the CPU’s slots.' },
-      { text: 'Build a second server across the floor — 10 GPUs online', check: s => s.stats.online >= 10,
-        hint: 'Hold <b>WASD</b> to glide across the floor to open space and build another CPU + GPUs + memory. Long runs fade — drop <b>retimers</b> on the wire, or reach with an <b>AEC / AOC</b> cable.' },
-      { text: 'A humming floor — 16 GPUs online', check: s => s.stats.online >= 16,
-        hint: 'Keep growing the floor. Zoom out to see the whole system, WASD over to a quiet corner, and build. Retimers and AOC keep the long links alive.' }
+      { text: 'Build a second island’s server — 8 GPUs online', check: s => s.stats.online >= 8,
+        hint: 'Hold <b>WASD</b> to glide across the sea to another island and build another CPU + GPUs + memory. Long runs fade — drop <b>retimers</b> on the wire.' },
+      { text: 'Bridge two islands — a NIC↔NIC ethernet link (AEC/AOC)', check: s => s.cables.some(isEthernetLink),
+        hint: 'Put a <b>NIC</b> on each of two islands’ servers and trace it to the CPU/switch. Then pick <b>AEC</b> or <b>AOC</b>, click one island’s NIC, and click the other island’s NIC to run an ethernet cable across the water.' },
+      { text: 'Grow the fabric — network three islands together', check: s => activeIslands(s).length >= 3 && islandsNetworked(s),
+        hint: 'Build a server on a third island, give it a NIC, and cable it into the mesh. Links across the water drop now and then — your <b>helper</b> animals trot over and patch them.' },
+      { text: 'A humming, fully-networked floor — 16 GPUs online', check: s => s.stats.online >= 16,
+        hint: 'Fill out all four islands, keep them networked, and let the helpers maintain the links. Retimers and AOC keep the long runs alive.' }
     ],
     lesson: `<h2>Advanced — four islands, one map</h2>
       <p>The map is <b>four little server islands</b> on one sea — all one continuous world, no separate views. You start focused on the <b>first island</b>: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
       <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea to the next island and build its server too. Everything lives on this one map.</p>
       <p>Every part you drop lands as a <b>see-through ghost</b> — one of your <b>helper</b> animals trots over, sets it up, and only then does it turn solid and start working.</p>
+      <p>Later on you'll <b>network the islands together</b>: drop a <b>NIC</b> on each server, wire it inward, then run an <b>AEC/AOC ethernet cable</b> from one island's NIC to another. Those links across the water <b>drop now and then</b> — your helpers keep an eye out and trot over to repair them.</p>
       <p class="tip">Between islands is open water — no board to etch a trace onto. Reach across with an <b>AEC</b> (retimed copper) or <b>AOC</b> (optical) cable, and drop <b>retimers</b> on long runs.</p>`
   },
   {
@@ -968,7 +973,7 @@ function placeWorkers() {
   workers.forEach((wk, i) => {
     const show = workersOn && !fpMode && i < showN;
     wk.mesh.visible = show;
-    wk.installId = null;
+    wk.job = null;
     if (!show) return;
     const p = workerSpot(); wk.x = p.x; wk.z = p.z; wk.y = p.y;
     const t = workerSpot(); wk.tx = t.x; wk.tz = t.z; wk.pause = Math.random() * 1.5; wk.targetFix = t.fix; wk.fixing = false;
@@ -983,18 +988,75 @@ function finishInstall(id) {
   const e = entById(id);
   if (e && e.installing) { e.installing = false; recompute(); }   // recompute → syncScene un-ghosts it
 }
-/* hand a free helper the next pending install job (walk it to that ghost part) */
-function assignInstall(wk) {
+function finishRepair(id) {
+  const c = S.cables.find(x => x.id === id);
+  if (c && c.down) { c.down = false; recompute(); say('✓ Helper patched the link back up!'); }
+}
+/* which island pad a tile sits on (-1 = open water) */
+function padOf(i, j) { const pads = S && S.level.pads; if (!pads) return -1; return pads.findIndex(r => i >= r[0] && i <= r[2] && j >= r[1] && j <= r[3]); }
+/* an inter-island network link: an AEC/AOC cable whose two ends sit on different islands */
+function isNetLink(c) {
+  if (c.type !== 'aecb' && c.type !== 'aocb') return false;
+  const A = entById(c.a), B = entById(c.b); if (!A || !B) return false;
+  const pa = padOf(A.i, A.j), pb = padOf(B.i, B.j);
+  return pa >= 0 && pb >= 0 && pa !== pb;
+}
+/* an ethernet link proper: an inter-island AEC/AOC with a NIC on each end */
+function isEthernetLink(c) {
+  if (!isNetLink(c)) return false;
+  const A = entById(c.a), B = entById(c.b);
+  return A.type === 'nic' && B.type === 'nic';
+}
+/* island pads that actually hold a server (have a CPU) */
+function activeIslands(s) {
+  const pads = s.level.pads; if (!pads) return [];
+  const pad = (i, j) => pads.findIndex(r => i >= r[0] && i <= r[2] && j >= r[1] && j <= r[3]);
+  const set = new Set();
+  s.ents.forEach(e => { if (e.type === 'cpu') { const p = pad(e.i, e.j); if (p >= 0) set.add(p); } });
+  return [...set];
+}
+/* every island-with-a-server joined into one fabric by healthy inter-island links */
+function islandsNetworked(s) {
+  const pads = s.level.pads; if (!pads) return false;
+  const active = activeIslands(s); if (active.length < 2) return false;
+  const pad = (i, j) => pads.findIndex(r => i >= r[0] && i <= r[2] && j >= r[1] && j <= r[3]);
+  const ent = id => s.ents.find(e => e.id === id);
+  const parent = {}; active.forEach(i => parent[i] = i);
+  const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  s.cables.forEach(c => {
+    if ((c.type !== 'aecb' && c.type !== 'aocb') || c.down || !c.ok) return;
+    const A = ent(c.a), B = ent(c.b); if (!A || !B) return;
+    const pa = pad(A.i, A.j), pb = pad(B.i, B.j);
+    if (pa >= 0 && pb >= 0 && pa !== pb && parent[pa] != null && parent[pb] != null) parent[find(pa)] = find(pb);
+  });
+  return active.every(i => find(i) === find(active[0]));
+}
+function assignJob(wk) {
+  /* 1) a downed inter-island link nobody's on yet → walk to its nearer end and fix it */
+  const dc = S.cables.find(c => c.down && isNetLink(c) && !workers.some(w => w !== wk && w.job && w.job.kind === 'repair' && w.job.id === c.id));
+  if (dc) {
+    const A = entById(dc.a), B = entById(dc.b), ca = entCenter(A), cb = entCenter(B);
+    const ep = (Math.hypot(wk.x - ca.x, wk.z - ca.z) <= Math.hypot(wk.x - cb.x, wk.z - cb.z)) ? ca : cb;
+    wk.job = { kind: 'repair', id: dc.id }; wk.tx = ep.x; wk.tz = ep.z; wk.targetFix = true; wk.pause = 0; wk.fixing = false;
+    return true;
+  }
+  /* 2) a ghost part waiting to be installed */
   while (installQueue.length) {
     const id = installQueue.shift();
     const e = entById(id);
     if (e && e.installing) {
       const c = entCenter(e);
-      wk.installId = id; wk.tx = c.x; wk.tz = c.z; wk.targetFix = true; wk.pause = 0; wk.fixing = false;
+      wk.job = { kind: 'install', id }; wk.tx = c.x; wk.tz = c.z; wk.targetFix = true; wk.pause = 0; wk.fixing = false;
       return true;
     }
   }
   return false;
+}
+function completeJob(wk) {
+  if (!wk.job) return;
+  if (wk.job.kind === 'install') finishInstall(wk.job.id);
+  else if (wk.job.kind === 'repair') finishRepair(wk.job.id);
+  wk.job = null;
 }
 function updateWorkers(dt, t) {
   workers.forEach(wk => {
@@ -1010,8 +1072,8 @@ function updateWorkers(dt, t) {
         wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 3 + wk.phase)) * 0.008;
       }
       if (wk.pause <= 0) {   // done working here
-        if (wk.installId != null) { finishInstall(wk.installId); wk.installId = null; }
-        if (!assignInstall(wk)) { const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; wk.targetFix = nt.fix; wk.fixing = false; }
+        completeJob(wk);
+        if (!assignJob(wk)) { const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; wk.targetFix = nt.fix; wk.fixing = false; }
       }
       return;
     }
@@ -1019,7 +1081,7 @@ function updateWorkers(dt, t) {
     const dx = wk.tx - wk.x, dz = wk.tz - wk.z, d = Math.hypot(dx, dz);
     if (d < 0.12) {
       wk.fixing = !!wk.targetFix;   // arrived at a component → get to work
-      wk.pause = wk.installId != null ? 1.5 : (wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4));
+      wk.pause = wk.job ? 1.5 : (wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4));
       return;
     }
     const step = Math.min(d, wk.spd * dt);
@@ -1035,9 +1097,30 @@ function updateWorkers(dt, t) {
 function sendInstaller(ent) {
   if (!workersOn || fpMode || !workers.some(w => w.mesh.visible)) { finishInstall(ent.id); return; }   // no crew to do it → just works
   installQueue.push(ent.id);
+  const c = entCenter(ent);
   let best = null, bd = 1e9;
-  workers.forEach(wk => { if (!wk.mesh.visible || wk.fixing || wk.installId != null) return; const d = Math.hypot(wk.x - entCenter(ent).x, wk.z - entCenter(ent).z); if (d < bd) { bd = d; best = wk; } });
-  if (best) assignInstall(best);
+  workers.forEach(wk => { if (!wk.mesh.visible || wk.fixing || wk.job) return; const d = Math.hypot(wk.x - c.x, wk.z - c.z); if (d < bd) { bd = d; best = wk; } });
+  if (best) assignJob(best);
+}
+/* gentle inter-island link maintenance: once you've bridged islands with ethernet
+   (NIC↔NIC AEC/AOC), those links occasionally drop — a free helper trots over to fix it */
+function updateNetwork(dt) {
+  if (!S || S.level.survival || islandEdit) return;
+  const nets = S.cables.filter(isNetLink);
+  if (!nets.length) { S._netFail = 14; return; }        // no inter-island links yet → nothing fails
+  S._netFail = (S._netFail == null ? 16 : S._netFail) - dt;
+  if (S._netFail <= 0) {
+    const up = nets.filter(c => !c.down && c.ok);
+    if (up.length) { up[(Math.random() * up.length) | 0].down = true; recompute(); say('⚠ An inter-island link dropped — a helper is on it.'); }
+    S._netFail = 16 + Math.random() * 14;               // gentle cadence
+  }
+  /* pull a free helper onto any downed link that nobody's handling */
+  S.cables.forEach(c => {
+    if (!c.down || !isNetLink(c)) return;
+    if (workers.some(w => w.job && w.job.kind === 'repair' && w.job.id === c.id)) return;
+    const wk = workers.find(w => w.mesh.visible && !w.fixing && !w.job);
+    if (wk) assignJob(wk);
+  });
 }
 
 /* ---- space mode: starfield, bright stars, galaxies + shooting stars ---- */
@@ -2524,6 +2607,7 @@ function animate(ts) {
 
   updateSpace(dt, t);
   if (S.level.survival) updateSurvival(dt, t);
+  else updateNetwork(dt);
   updatePulses(dt, ts);
   updateElastics();
   updateFx(dt);
@@ -2724,7 +2808,7 @@ window.G3D = {
   enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
   get cableCurves() { return cableCurves; }, get retimers() { return S.retimers; },
   scaleMiniServers, get miniGroup() { return miniGroup; }, controls,
-  updateWorkers, finishInstall,
+  updateWorkers, finishInstall, updateNetwork, isNetLink, isEthernetLink, islandsNetworked, activeIslands,
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
