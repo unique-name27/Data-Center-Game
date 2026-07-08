@@ -95,18 +95,18 @@ const RET = {
   desc: 'A retimer recovers the clock and data from a degraded electrical signal and retransmits it perfectly clean — signal health resets to 100% at the chip. Place it on a copper route BEFORE health falls under 30%.',
   real: 'Retimers live on motherboards, riser cards, backplanes and inside AECs — a chip category that has grown into a multi-billion-dollar business alongside AI.'
 };
-/* ---- operator upgrades: a unified software suite (fleet telemetry) and an
-   interop lab. Telemetry watches the fabric so signals hold up over longer runs,
-   outages are caught earlier, and repairs go faster; the interop lab makes every
-   part play together better — more reach, more capacity, fewer failures still. ---- */
+/* ---- operator upgrades: two optional assists for the four-island fabric ----
+   Interop Lab boosts REACH — every cable loses less signal, so links run further
+   and need fewer retimers. Telemetry Suite boosts UPTIME — inter-island links
+   drop far less often, and your helper animals install and repair much faster.
+   One helps you connect the islands, the other helps you keep them connected. ---- */
 let suite = false, interop = false, upgBtns = [];
-/* the suite + interop lab are Survival-mode ops upgrades — they only take effect there */
-function upgActive()  { return !!(S && S.level && S.level.survival); }
-function lossMul()    { return upgActive() ? (suite ? 0.70 : 1) * (interop ? 0.85 : 1) : 1; }  // lower loss = more reach
-function capMul()     { return upgActive() && interop ? 1.30 : 1; }                             // more Tb/s per link = less congestion
-function failGapMul() { return (suite ? 1.60 : 1) * (interop ? 1.25 : 1); }   // longer between outages (survival-only path)
-function repairMul()  { return (suite ? 0.55 : 1) * (interop ? 0.80 : 1); }   // shorter repair time (survival-only path)
-function boatBoost()  { return (suite ? 0.8 : 0) + (interop ? 0.5 : 0); }     // engineers travel faster (survival-only path)
+function upgActive()  { return !!(S && S.level && S.level.pads); }   // the fabric maps (campaign / free build)
+function lossMul()    { return upgActive() && interop ? 0.6 : 1; }   // Interop: 40% less signal loss = more reach
+function capMul()     { return upgActive() && interop ? 1.30 : 1; }
+function failGapMul() { return suite ? 1.9 : 1; }                    // Suite: much longer between link drops
+function repairMul()  { return suite ? 0.5 : 1; }                    // Suite: helpers install / repair in half the time
+function boatBoost()  { return suite ? 0.9 : 0; }                    // Suite: helpers hustle to the job faster
 function setSuite(on)   { suite = !!on;   recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 function setInterop(on) { interop = !!on; recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 const ALLOWED_BOARD = {
@@ -1147,10 +1147,10 @@ function updateWorkers(dt, t) {
     const dx = wk.tx - wk.x, dz = wk.tz - wk.z, d = Math.hypot(dx, dz);
     if (d < 0.12) {
       wk.fixing = !!wk.targetFix;   // arrived at a component → get to work
-      wk.pause = wk.job ? 1.5 : (wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4));
+      wk.pause = wk.job ? 1.5 * repairMul() : (wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4));
       return;
     }
-    const step = Math.min(d, wk.spd * dt);
+    const step = Math.min(d, wk.spd * (1 + (wk.job ? boatBoost() : 0)) * dt);
     wk.x += dx / d * step; wk.z += dz / d * step;
     wk.mesh.position.set(wk.x, wk.y + Math.abs(Math.sin(t * 9 + wk.phase)) * 0.01, wk.z);
     wk.mesh.rotation.y = Math.atan2(dx, dz);
@@ -1178,7 +1178,7 @@ function updateNetwork(dt) {
   if (S._netFail <= 0) {
     const up = nets.filter(c => !c.down && c.ok);
     if (up.length) { up[(Math.random() * up.length) | 0].down = true; recompute(); say('⚠ An inter-island link dropped — a helper is on it.'); }
-    S._netFail = 16 + Math.random() * 14;               // gentle cadence
+    S._netFail = (16 + Math.random() * 14) * failGapMul();   // gentle cadence (Telemetry Suite stretches it out)
   }
   /* pull a free helper onto any downed link that nobody's handling */
   S.cables.forEach(c => {
@@ -2856,11 +2856,11 @@ requestAnimationFrame(animate);
     upgBtns.push(b);
   };
   mk('btnInterop', '🔬 Interop ✓', '🔬 Interop Lab',
-     'Interop lab: everything interoperates better — more reach, more capacity, fewer failures',
-     () => interop, setInterop, 'dct3d_interop', '🔬 Interop lab online — more reach, more capacity, steadier links.');
-  mk('btnSuite', '📊 Suite ✓', '📊 Software Suite',
-     'Unified software suite: fleet telemetry — longer reach, fewer outages, faster repairs',
-     () => suite, setSuite, 'dct3d_suite', '📊 Telemetry suite online — longer reach, fewer outages, faster repairs.');
+     'Interop Lab — REACH: every cable loses 40% less signal, so links run further and need fewer retimers',
+     () => interop, setInterop, 'dct3d_interop', '🔬 Interop Lab online — cables reach further (−40% signal loss).');
+  mk('btnSuite', '📊 Suite ✓', '📊 Telemetry Suite',
+     'Telemetry Suite — UPTIME: inter-island links drop far less often, and helpers install & repair twice as fast',
+     () => suite, setSuite, 'dct3d_suite', '📊 Telemetry Suite online — steadier links, faster helpers.');
 })();
 
 /* testing hooks */
