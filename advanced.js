@@ -8,7 +8,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
    Same simulation and lessons as the 2D game. */
 
 /* ---------------- constants ---------------- */
-const GRID_W = 16, GRID_H = 9;
+let GRID_W = 16, GRID_H = 9;   // per-level; a big flat floor uses a much larger grid
 const FAIL = 30;
 const LS_KEY = 'dct3d_progress_v1';
 
@@ -124,30 +124,26 @@ const ALLOWED_BOARD = {
 /* ---------------- levels ---------------- */
 const LEVELS = [
   {
-    title: 'Campaign — one continuous hall', islands: true, campaign: true,
-    tools: ['srv', 'core', 'aecb', 'aocb'],
-    pre: [{ t: 'core', i: 8, j: 4 }, { t: 'srv', i: 2, j: 2 }],
+    title: 'Campaign — one continuous floor', campaign: true,
+    gw: 40, gh: 24,
+    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
+    pre: [{ t: 'cpu', i: 19, j: 11 }],
     goals: [
-      { text: 'Scroll into your server and bring a GPU online', check: s => s.ents.some(e => e.type === 'srv' && serverWorks(e.inner)),
-        hint: 'Scroll the mouse wheel <b>in</b> on the server island in the corner to dive inside. Place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b>, trace them together, then scroll back <b>out</b>.' },
-      { text: 'Cable your server to the core switch', check: s => s.stats.online >= 1,
-        hint: 'Back in the hall, pick the <b>AEC</b> tool, click your working server island, then click the <b>core</b> in the middle.' },
-      { text: 'Add a second server and bring it online', check: s => s.stats.online >= 2,
-        hint: 'Pick the <b>Server</b> tool, drop a new island, scroll in to build its server, then cable it to the core.' },
-      { text: 'Grow the hall — 4 servers online', check: s => s.stats.online >= 4,
-        hint: 'Keep adding servers, building each one, and cabling to the core — <b>AEC</b> for near islands, <b>AOC</b> for the far ones.' },
-      { text: 'Add redundancy — dual-home a server (two links to the core)',
-        check: s => s.ents.some(e => e.type === 'srv' && s.cables.filter(c => (c.a === e.id || c.b === e.id) && c.ok && !c.down).length >= 2),
-        hint: 'Run a <b>second</b> cable from one working server to the core. Two paths means a single failure can’t take it down.' },
-      { text: 'A bigger hall — 6 servers online', check: s => s.stats.online >= 6,
-        hint: 'More islands, more servers — keep building and cabling. Space islands a few tiles apart.' },
-      { text: 'A humming data hall — 8 servers online', check: s => s.stats.online >= 8,
-        hint: 'Fill out the hall. Reach the far islands with <b>AOC</b>, and remember retimers keep long copper alive.' }
+      { text: 'Bring your first GPU online (it needs a CPU + memory)', check: s => s.stats.online >= 1,
+        hint: 'Place a <b>DIMM</b> and a <b>GPU</b> next to the CPU, pick <b>Trace</b>, and wire each to the CPU. A GPU only lights up when it can reach a CPU <i>and</i> memory.' },
+      { text: 'Beat the 4-port limit — 6 GPUs online through a PCIe switch', check: s => s.stats.online >= 6 && s.stats.switchUsed,
+        hint: 'A CPU has only 4 ports. Place a <b>PCIe switch</b>, trace the CPU to it, then hang your GPUs off the switch.' },
+      { text: 'Add more memory with a CXL controller', check: s => s.stats.memctlUsed,
+        hint: 'Place a <b>CXL controller</b>, wire it to the CPU or switch, then trace <b>DIMMs</b> to it to add memory beyond the CPU’s slots.' },
+      { text: 'Build a second server across the floor — 10 GPUs online', check: s => s.stats.online >= 10,
+        hint: 'Hold <b>WASD</b> to glide across the floor to open space and build another CPU + GPUs + memory. Long runs fade — drop <b>retimers</b> on the wire, or reach with an <b>AEC / AOC</b> cable.' },
+      { text: 'A humming floor — 16 GPUs online', check: s => s.stats.online >= 16,
+        hint: 'Keep growing the floor. Zoom out to see the whole system, WASD over to a quiet corner, and build. Retimers and AOC keep the long links alive.' }
     ],
-    lesson: `<h2>Advanced — one continuous hall</h2>
-      <p>You're standing on your <b>first server's board</b>. Build it: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b>, wire them with <b>PCIe traces</b> (add <b>retimers</b> on long runs), and bring a GPU online.</p>
-      <p>Then <b>scroll your mouse wheel out</b> (or hit the <b>↖ Back to the data hall</b> button) to pull back to the whole hall, where you wire your servers to the core switch with <b>AEC</b> / <b>AOC</b> cables. <b>Scroll in</b> on any island to dive back into it. Everything you build stays put.</p>
-      <p class="tip">One world, two scales — zoom in to build a server, zoom out to connect the hall.</p>`
+    lesson: `<h2>Advanced — one continuous floor</h2>
+      <p>This whole green floor is <b>one map</b>. You start on your first server — place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
+      <p>There's no separate "hall" view. <b>Scroll to zoom</b> from a GPU close-up all the way out to the whole system, and hold <b>WASD</b> to glide across the floor. Build more servers wherever you like and link them together — everything lives on this one continuous map.</p>
+      <p class="tip">Signals still fade with distance: on long runs drop a <b>retimer</b> on the wire, or reach with an <b>AEC</b> (retimed copper) or <b>AOC</b> (optical) cable.</p>`
   },
   {
     title: 'Lesson 1 — Inside the server', hidden: true,
@@ -816,6 +812,8 @@ function makeIsland(parent, cx, cz, w, d, cols, rows, border) {
   parent.add(shore, dirt, top);
 }
 function buildWorld(level) {
+  GRID_W = level.gw || 16; GRID_H = level.gh || 9;   // size the board to this level
+  controls.maxDistance = Math.max(46, GRID_W * 1.5);  // let you pull back far enough to see a big floor
   scene.remove(worldGroup);
   worldGroup = new THREE.Group();
   if (level.islands) {
@@ -2263,7 +2261,7 @@ function startLevel(idx) {
   placeWorkers();
   /* the campaign drops you straight onto your first server's board — so there's
      always something to build the instant you arrive; scroll out to reach the hall */
-  if (S.level.campaign) {
+  if (S.level.campaign && S.level.islands) {
     const first = S.ents.find(e => e.type === 'srv');
     if (first) enterIsland(first);
   }
@@ -2328,8 +2326,9 @@ function animate(ts) {
         const move = new THREE.Vector3().addScaledVector(fwd, pf).addScaledVector(right, pr).normalize();
         const spd = camera.position.distanceTo(controls.target) * 0.9 * dt;
         const ox = controls.target.x, oz = controls.target.z;
-        controls.target.x = Math.max(-16, Math.min(16, controls.target.x + move.x * spd));
-        controls.target.z = Math.max(-12, Math.min(12, controls.target.z + move.z * spd));
+        const clx = GRID_W / 2 + 3, clz = GRID_H / 2 + 3;   // roam the whole floor, a little past the edges
+        controls.target.x = Math.max(-clx, Math.min(clx, controls.target.x + move.x * spd));
+        controls.target.z = Math.max(-clz, Math.min(clz, controls.target.z + move.z * spd));
         camera.position.x += controls.target.x - ox;   // move the camera by the same (clamped) amount
         camera.position.z += controls.target.z - oz;
       }
