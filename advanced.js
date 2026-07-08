@@ -124,8 +124,8 @@ const ALLOWED_BOARD = {
 /* ---------------- levels ---------------- */
 /* the shared four-island map — one continuous sea used by every mode.
    [i0,j0,i1,j1] tile rects, spaced well apart with open water between them */
-const MAP_GW = 38, MAP_GH = 28;
-const MAP_PADS = [[3, 3, 14, 10], [23, 3, 34, 10], [3, 17, 14, 24], [23, 17, 34, 24]];
+const MAP_GW = 40, MAP_GH = 30;
+const MAP_PADS = [[3, 3, 14, 10], [25, 3, 36, 10], [3, 19, 14, 26], [25, 19, 36, 26]];
 
 const LEVELS = [
   {
@@ -749,19 +749,28 @@ scene.add(ocean);
 
 /* grid is inset by fx/fz (0..0.5 fraction) so the drawn cells line up
    exactly with the tile centres where components are placed */
-function grassTexture(cols, rows, fx, fz) {
+/* each island wears a different biome — a base colour, grid line, fleck colours,
+   a matching dirt band, and its own set of decorations */
+const BIOMES = [
+  { name: 'meadow',   top: '#7ecb54', grid: 'rgba(70,140,50,.5)',   fleck: ['rgba(255,255,255,.10)', 'rgba(60,130,45,.18)'],  dirt: 0x9a6a3f },
+  { name: 'desert',   top: '#e6c579', grid: 'rgba(196,158,88,.5)',  fleck: ['rgba(255,255,255,.12)', 'rgba(198,158,92,.22)'], dirt: 0xc79a5b },
+  { name: 'snow',     top: '#e9f2fb', grid: 'rgba(160,190,220,.55)', fleck: ['rgba(255,255,255,.55)', 'rgba(180,205,230,.25)'], dirt: 0x93a7bc },
+  { name: 'volcanic', top: '#4a3f47', grid: 'rgba(96,74,86,.55)',   fleck: ['rgba(255,120,50,.12)', 'rgba(18,13,16,.4)'],     dirt: 0x392e34 }
+];
+function grassTexture(cols, rows, fx, fz, biome) {
+  biome = biome || BIOMES[0];
   fx = fx || 0; fz = fz || 0;
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 576;
   const g = c.getContext('2d');
-  g.fillStyle = '#7ecb54'; g.fillRect(0, 0, 1024, 576);
-  g.strokeStyle = 'rgba(70,140,50,.5)'; g.lineWidth = 2;
+  g.fillStyle = biome.top; g.fillRect(0, 0, 1024, 576);
+  g.strokeStyle = biome.grid; g.lineWidth = 2;
   const x0 = fx * 1024, x1 = (1 - fx) * 1024, cw = (x1 - x0) / cols;
   const z0 = fz * 576, z1 = (1 - fz) * 576, ch = (z1 - z0) / rows;
   for (let i = 0; i <= cols; i++) { g.beginPath(); g.moveTo(x0 + i * cw, z0); g.lineTo(x0 + i * cw, z1); g.stroke(); }
   for (let j = 0; j <= rows; j++) { g.beginPath(); g.moveTo(x0, z0 + j * ch); g.lineTo(x1, z0 + j * ch); g.stroke(); }
   for (let k = 0; k < 700; k++) {
-    g.fillStyle = k % 2 ? 'rgba(255,255,255,.10)' : 'rgba(60,130,45,.18)';
+    g.fillStyle = k % 2 ? biome.fleck[0] : biome.fleck[1];
     g.fillRect(Math.random() * 1024, Math.random() * 576, 3, 3);
   }
   const t = new THREE.CanvasTexture(c);
@@ -795,22 +804,80 @@ function flowerPatch(parent, x, z) {
     parent.add(f);
   }
 }
-function rock(parent, x, z, s) {
-  const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3 * s, 0), toon(0xb8bfc8));
+function rock(parent, x, z, s, color) {
+  const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3 * s, 0), toon(color || 0xb8bfc8));
   r.position.set(x, 0.12 * s, z);
   r.scale.y = 0.7; r.castShadow = true;
   parent.add(r);
+}
+/* ---- biome props ---- */
+function cactus(parent, x, z, s) {
+  const g = new THREE.Group(); const mat = toon(0x4b9e5f);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.14 * s, 0.17 * s, 0.95 * s, 8), mat); body.position.y = 0.48 * s; body.castShadow = true;
+  const mkArm = (sx) => {
+    const up = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * s, 0.07 * s, 0.3 * s, 6), mat); up.position.set(sx * 0.22 * s, 0.62 * s, 0);
+    const side = new THREE.Mesh(new THREE.CylinderGeometry(0.07 * s, 0.07 * s, 0.22 * s, 6), mat); side.rotation.z = Math.PI / 2; side.position.set(sx * 0.13 * s, 0.5 * s, 0);
+    g.add(up, side);
+  };
+  mkArm(1); mkArm(-1); g.add(body);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  g.position.set(x, 0, z); parent.add(g);
+}
+function pineTree(parent, x, z, s) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * s, 0.12 * s, 0.4 * s, 6), toon(0x6b4a2a)); trunk.position.y = 0.2 * s;
+  const c1 = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 0.62 * s, 8), toon(0x2f7d4f)); c1.position.y = 0.62 * s;
+  const c2 = new THREE.Mesh(new THREE.ConeGeometry(0.37 * s, 0.5 * s, 8), toon(0x379157)); c2.position.y = 0.98 * s;
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.4 * s, 0.2 * s, 8), toon(0xffffff)); cap.position.y = 1.16 * s;
+  g.add(trunk, c1, c2, cap);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  g.position.set(x, 0, z); parent.add(g);
+}
+function snowman(parent, x, z, s) {
+  const g = new THREE.Group(); const snow = toon(0xffffff);
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.3 * s, 12, 10), snow); b.position.y = 0.3 * s;
+  const h = new THREE.Mesh(new THREE.SphereGeometry(0.2 * s, 12, 10), snow); h.position.y = 0.68 * s;
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.04 * s, 0.16 * s, 6), toon(0xe8912e)); nose.rotation.x = Math.PI / 2; nose.position.set(0, 0.7 * s, 0.2 * s);
+  [-1, 1].forEach(sx => { const e = new THREE.Mesh(new THREE.SphereGeometry(0.03 * s, 6, 6), toon(0x141414)); e.position.set(sx * 0.07 * s, 0.74 * s, 0.17 * s); g.add(e); });
+  g.add(b, h, nose);
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  g.position.set(x, 0, z); parent.add(g);
+}
+function volcano(parent, x, z, s) {
+  const g = new THREE.Group();
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.32 * s, 0.72 * s, 0.85 * s, 12), toon(0x3a2f34)); cone.position.y = 0.42 * s; cone.castShadow = true;
+  const lava = new THREE.Mesh(new THREE.CylinderGeometry(0.26 * s, 0.26 * s, 0.1 * s, 12),
+    new THREE.MeshToonMaterial({ color: 0xff5a2a, gradientMap: gradTex, emissive: 0xff3b12, emissiveIntensity: 1.2 }));
+  lava.position.y = 0.88 * s;
+  g.add(cone, lava); g.position.set(x, 0, z); parent.add(g);
+}
+/* scatter a biome's signature props around an island's grassy border ring */
+function decorate(parent, biome, cx, cz, w, d) {
+  const ex = w / 2 + 0.35, ez = d / 2 + 0.35;
+  if (biome.name === 'desert') {
+    cactus(parent, cx - ex, cz - ez, 1.0); cactus(parent, cx + ex, cz + ez, 0.8);
+    rock(parent, cx + ex, cz - ez, 0.6, 0xcaa063); rock(parent, cx - ex, cz + ez, 0.45, 0xdcb877);
+  } else if (biome.name === 'snow') {
+    pineTree(parent, cx - ex, cz - ez, 0.9); pineTree(parent, cx + ex, cz + ez, 0.75);
+    snowman(parent, cx + ex, cz - ez, 0.9); rock(parent, cx - ex, cz + ez, 0.5, 0xcfe0ee);
+  } else if (biome.name === 'volcanic') {
+    volcano(parent, cx - ex, cz - ez, 0.9); rock(parent, cx + ex, cz + ez, 0.7, 0x2f2630);
+    rock(parent, cx + ex, cz - ez, 0.5, 0x241d27); rock(parent, cx - ex, cz + ez, 0.4, 0x3a2f34);
+  } else {
+    tree(parent, cx - ex, cz - ez, 0.8); tree(parent, cx + ex, cz + ez, 0.7);
+    flowerPatch(parent, cx + ex, cz - ez); rock(parent, cx - ex, cz + ez, 0.5);
+  }
 }
 
 /* ---- world rebuild per level ---- */
 let worldGroup = new THREE.Group();
 scene.add(worldGroup);
-function makeIsland(parent, cx, cz, w, d, cols, rows, border) {
-  border = border || 0;
+function makeIsland(parent, cx, cz, w, d, cols, rows, border, biome) {
+  border = border || 0; biome = biome || BIOMES[0];
   const top = new THREE.Mesh(new RoundedBoxGeometry(w, 0.7, d, 4, 0.3),
-    toon(0xffffff, { map: grassTexture(cols, rows, border / w, border / d) }));
+    toon(0xffffff, { map: grassTexture(cols, rows, border / w, border / d, biome) }));
   top.position.set(cx, -0.35, cz); top.receiveShadow = true;
-  const dirt = new THREE.Mesh(new RoundedBoxGeometry(w + 0.3, 1.3, d + 0.3, 4, 0.4), toon(0x9a6a3f));
+  const dirt = new THREE.Mesh(new RoundedBoxGeometry(w + 0.3, 1.3, d + 0.3, 4, 0.4), toon(biome.dirt));
   dirt.position.set(cx, -1.05, cz);
   parent.add(dirt, top);
 }
@@ -834,14 +901,13 @@ function buildWorld(level) {
       if (!big) rock(worldGroup, cx - w * 0.32, cz - d * 0.3, 0.6);
     });
   } else if (level.pads) {
-    /* four (or more) small server islands laid out on one continuous sea */
-    level.pads.forEach(r => {
+    /* four small server islands laid out on one continuous sea, each its own biome */
+    level.pads.forEach((r, idx) => {
+      const biome = BIOMES[idx % BIOMES.length];
       const cx = (tX(r[0]) + tX(r[2])) / 2, cz = (tZ(r[1]) + tZ(r[3])) / 2;
       const w = r[2] - r[0] + 1, d = r[3] - r[1] + 1;
-      makeIsland(worldGroup, cx, cz, w + 1.4, d + 1.4, w, d, 0.7);
-      tree(worldGroup, cx - w / 2 - 0.15, cz - d / 2 - 0.15, 0.8);
-      flowerPatch(worldGroup, cx + w / 2 - 0.3, cz + d / 2 - 0.25);
-      rock(worldGroup, cx - w / 2 + 0.3, cz + d / 2 - 0.1, 0.55);
+      makeIsland(worldGroup, cx, cz, w + 1.4, d + 1.4, w, d, 0.7, biome);
+      decorate(worldGroup, biome, cx, cz, w, d);
     });
   } else {
     makeIsland(worldGroup, 0, 0, GRID_W + 1.4, GRID_H + 1.4, GRID_W, GRID_H, 0.7);
