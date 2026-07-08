@@ -1388,12 +1388,21 @@ function renderMiniServers() {
     if (srv.type !== 'srv' || !srv.inner) return;
     /* one group per island, positioned at its centre — we scale this group with
        the camera zoom so the components grow as you zoom in, shrink as you zoom out */
-    const grp = new THREE.Group(); grp.position.set(tX(srv.i), 0.12, tZ(srv.j));
+    const grp = new THREE.Group(); grp.position.set(tX(srv.i), 0.06, tZ(srv.j));
     (srv.inner.ents || []).forEach(ie => {
       const sz = esize(ie.type);
-      const box = new THREE.Mesh(new THREE.BoxGeometry(0.8 * scale * (sz[0] > 1 ? 1.9 : 1), 0.08, 0.8 * scale * (sz[1] > 1 ? 1.9 : 1)), toon(MINI_COL[ie.type] || 0x9aa4b0));
-      const p = lp(ie.i, ie.j, sz); box.position.set(p[0], 0, p[1]); box.castShadow = true;
-      grp.add(box);
+      const m = buildPiece(ie.type);   // the real component mesh, shrunk to fit the island
+      const ps = (sz[0] > 1 || sz[1] > 1) ? pieceScale(ie.type) : [1, 1, 1];
+      m.scale.set(ps[0] * scale, ps[1] * scale, ps[2] * scale);
+      const p = lp(ie.i, ie.j, sz); m.position.set(p[0], 0, p[1]);
+      grp.add(m);
+    });
+    (srv.inner.retimers || []).forEach(r => {   // tiny retimers on the wires
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.5 * scale, 8, 8), toon(0x8dffb8));
+      const c = srv.inner.cables.find(x => x.id === r.cableId);
+      if (!c) return; const A = srv.inner.ents.find(e => e.id === c.a), B = srv.inner.ents.find(e => e.id === c.b);
+      if (!A || !B) return; const a = lp(A.i, A.j, esize(A.type)), b = lp(B.i, B.j, esize(B.type));
+      dot.position.set(a[0] + (b[0] - a[0]) * r.t, 0.02, a[1] + (b[1] - a[1]) * r.t); grp.add(dot);
     });
     (srv.inner.cables || []).forEach(c => {
       const A = srv.inner.ents.find(e => e.id === c.a), B = srv.inner.ents.find(e => e.id === c.b);
@@ -1409,7 +1418,8 @@ function renderMiniServers() {
 function scaleMiniServers() {
   if (!miniGroup.children.length) return;
   const dist = camera.position.distanceTo(controls.target);
-  const k = Math.max(1, Math.min(3, 3 - (dist - 8) / (46 - 8) * 2));   // ~3x zoomed in, 1x zoomed way out
+  // grow to near full-size for a real GPU close-up when zoomed all the way in, tiny when way out
+  const k = Math.max(1, Math.min(6, 1 + (46 - dist) / (46 - 8) * 5));
   miniGroup.children.forEach(g => g.scale.setScalar(k));
 }
 function syncScene() {
