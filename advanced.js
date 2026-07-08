@@ -837,10 +837,7 @@ function makeIsland(parent, cx, cz, w, d, cols, rows, border) {
   top.position.set(cx, -0.35, cz); top.receiveShadow = true;
   const dirt = new THREE.Mesh(new RoundedBoxGeometry(w + 0.3, 1.3, d + 0.3, 4, 0.4), toon(0x9a6a3f));
   dirt.position.set(cx, -1.05, cz);
-  const shore = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(w, d) * 0.62, Math.max(w, d) * 0.66, 0.3, 40),
-    new THREE.MeshBasicMaterial({ color: 0xbdeaf6 }));
-  shore.position.set(cx, -1.62, cz); shore.scale.set(1, 1, d / w);
-  parent.add(shore, dirt, top);
+  parent.add(dirt, top);
 }
 function buildWorld(level) {
   GRID_W = level.gw || 16; GRID_H = level.gh || 9;   // size the board to this level
