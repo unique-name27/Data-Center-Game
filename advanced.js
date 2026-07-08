@@ -153,6 +153,7 @@ const LEVELS = [
       <p>The map is <b>four little server islands</b> on one sea — all one continuous world, no separate views. You start focused on the <b>first island</b>: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
       <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea to the next island and build its server too. Everything lives on this one map.</p>
       <p>Every part you drop lands as a <b>see-through ghost</b> — one of your <b>helper</b> animals trots over, sets it up, and only then does it turn solid and start working.</p>
+      <p>You start with just the basics. <b>New parts and upgrades unlock as you clear objectives</b> — switches and retimers first, then memory controllers, and finally the networking gear that ties the islands together.</p>
       <p>Later on you'll <b>network the islands together</b>: drop a <b>NIC</b> on each server, wire it inward, then run an <b>AEC/AOC ethernet cable</b> from one island's NIC to another. Those links across the water <b>drop now and then</b> — your helpers keep an eye out and trot over to repair them.</p>
       <p class="tip">Between islands is open water — no board to etch a trace onto. Reach across with an <b>AEC</b> (retimed copper) or <b>AOC</b> (optical) cable, and drop <b>retimers</b> on long runs.</p>`
   },
@@ -423,6 +424,7 @@ function recompute() {
     unlockLevel(S.idx + 1);
     levelComplete();
   }
+  updateUnlocks();
   updateHUD(); updateGoals();
 }
 
@@ -2208,9 +2210,42 @@ function toolMeta(key) {
   if (key === 'select') return { label: 'Move / inspect', sub: 'click or drag' };
   return { label: 'Remove', sub: 'click to delete' };
 }
+/* campaign progression: parts + ops upgrades unlock as you clear objectives.
+   value = number of leading objectives you must finish before it appears */
+const UNLOCK = {
+  cpu: 0, gpu: 0, mem: 0, trace: 0,
+  pswitch: 1, retimer: 1,
+  memctl: 2,
+  nic: 4, aecb: 4, aocb: 4, interop: 4,
+  suite: 5
+};
+const UNLOCK_NAME = {
+  pswitch: 'PCIe switch', retimer: 'Retimer', memctl: 'CXL controller',
+  nic: 'NIC', aecb: 'AEC cable', aocb: 'AOC cable',
+  interop: '🔬 Interop Lab', suite: '📊 Telemetry Suite'
+};
+/* everything is unlocked outside the campaign; inside it, keyed to progress */
+function isUnlocked(key) {
+  if (!S || !S.level || !S.level.campaign) return true;
+  return (S.unlockN || 0) >= (UNLOCK[key] || 0);
+}
+/* count leading objectives cleared (high-water mark) and reveal anything newly earned */
+function updateUnlocks() {
+  if (!S.level.campaign || !S.level.goals) return;
+  let done = 0;
+  for (const g of S.level.goals) { if (g.check(S)) done++; else break; }
+  if (done <= (S.unlockN || 0)) return;
+  const prev = S.unlockN || 0; S.unlockN = done;
+  const newly = Object.keys(UNLOCK).filter(k => UNLOCK[k] > prev && UNLOCK[k] <= done &&
+    (S.level.tools.includes(k) || k === 'interop' || k === 'suite'));
+  if (!newly.length) return;
+  buildToolbar(); updateHUD();
+  say('🔓 Unlocked: ' + newly.map(k => UNLOCK_NAME[k] || k).join(', '));
+}
 function buildToolbar() {
   const wrap = $('tools'); wrap.innerHTML = '';
-  ['select', ...S.level.tools, 'delete'].forEach((key, n) => {
+  const avail = S.level.tools.filter(isUnlocked);
+  ['select', ...avail, 'delete'].forEach((key, n) => {
     const b = document.createElement('button');
     b.dataset.tool = key;
     const m = toolMeta(key);
@@ -2286,8 +2321,11 @@ function updateHUD() {
   mode.textContent = S.level.campaign ? '⚒ Free build' : '▶ Campaign';
   mode.classList.toggle('big', !S.level.campaign);
   mode.style.display = islandEdit ? 'none' : '';   // inside a server, the Back button is the control
-  /* the suite + interop lab are Survival-only tools — only surface them there */
-  upgBtns.forEach(b => { b.style.display = S.level.survival ? '' : 'none'; });
+  /* the two ops upgrades unlock later in the campaign (always on in free build) */
+  upgBtns.forEach(b => {
+    const k = b.id === 'btnInterop' ? 'interop' : b.id === 'btnSuite' ? 'suite' : null;
+    b.style.display = (k && isUnlocked(k)) ? '' : 'none';
+  });
 }
 function updateGoals() {
   const ul = $('goalList'); ul.innerHTML = '';
