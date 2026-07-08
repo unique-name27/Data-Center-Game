@@ -126,25 +126,6 @@ const ALLOWED_BOARD = {
    [i0,j0,i1,j1] tile rects, spaced well apart with open water between them */
 const MAP_GW = 38, MAP_GH = 28;
 const MAP_PADS = [[3, 3, 14, 10], [23, 3, 34, 10], [3, 17, 14, 24], [23, 17, 34, 24]];
-/* a simple working server (CPU + 2 GPUs + memory, traced together) on one island pad */
-function islandServer(pad) {
-  const i0 = pad[0], j0 = pad[1];
-  /* every link is 2 tiles — short enough that a plain trace stays healthy */
-  const ents = [
-    { t: 'cpu', i: i0 + 3, j: j0 + 3 },
-    { t: 'gpu', i: i0 + 5, j: j0 + 3 },
-    { t: 'gpu', i: i0 + 1, j: j0 + 3 },
-    { t: 'mem', i: i0 + 3, j: j0 + 5 }
-  ];
-  const cables = [[0, 1], [0, 2], [0, 3]];   // cpu→gpu, cpu→gpu, cpu→mem (local indices)
-  return { ents, cables };
-}
-const SURV_PRE = [], SURV_CABLES = [];
-MAP_PADS.forEach(pad => {
-  const srv = islandServer(pad), base = SURV_PRE.length;
-  srv.ents.forEach(e => SURV_PRE.push(e));
-  srv.cables.forEach(c => SURV_CABLES.push({ a: base + c[0], b: base + c[1], type: 'trace' }));
-});
 
 const LEVELS = [
   {
@@ -167,6 +148,7 @@ const LEVELS = [
     lesson: `<h2>Advanced — four islands, one map</h2>
       <p>The map is <b>four little server islands</b> on one sea — all one continuous world, no separate views. You start focused on the <b>first island</b>: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
       <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea to the next island and build its server too. Everything lives on this one map.</p>
+      <p>Every part you drop lands as a <b>see-through ghost</b> — one of your <b>helper</b> animals trots over, sets it up, and only then does it turn solid and start working.</p>
       <p class="tip">Between islands is open water — no board to etch a trace onto. Reach across with an <b>AEC</b> (retimed copper) or <b>AOC</b> (optical) cable, and drop <b>retimers</b> on long runs.</p>`
   },
   {
@@ -256,19 +238,6 @@ const LEVELS = [
       <p>No objectives — just build. You've got <b>four islands on one sea</b>. Drop <b>CPUs</b>, hang GPUs and memory off <b>PCIe switches</b> and <b>CXL controllers</b>, and wire it all with <b>traces</b>, <b>AEC</b> and <b>AOC</b> cables.</p>
       <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea. Your little crew of animals installs each part as you drop it.</p>
       <p class="tip">Between islands is open water — reach across with an <b>AEC</b> or <b>AOC</b>, never a board trace. Drag to rearrange, Del to remove.</p>`
-  },
-  {
-    title: 'Survival — keep the islands alive', sandbox: true, survival: true,
-    gw: MAP_GW, gh: MAP_GH, pads: MAP_PADS,
-    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
-    pre: SURV_PRE,
-    preCables: SURV_CABLES,
-    goals: [{ text: 'Keep the GPUs online — score is your uptime', check: () => false }],
-    lesson: `<h2>Survival — keep the islands alive</h2>
-      <p>Four islands, each with a humming little server. Now <b>keep them alive.</b> Links fail over time — and it only gets worse as your shift wears on.</p>
-      <p>When a link drops it turns <b style="color:#e05555">red</b> and its GPU goes dark. A <b>helper</b> trots over and fixes it — or <b>click the broken link</b> to send one straight there. You've got a small crew, so when several fail at once, triage.</p>
-      <p>Your score is <b>uptime %</b>. The winning move is <b>redundancy</b>: run a <i>second</i> path to a GPU so a single failure can't take it down — build spare links in the quiet moments.</p>
-      <p class="tip">Zoom out to watch the whole system, WASD over to a struggling island, and shore it up. Right-drag to orbit.</p>`
   }
 ];
 
@@ -363,7 +332,8 @@ function recompute() {
   const healthy = S.cables.filter(c => c.ok && !c.down);
   const other = (c, e) => S.ents.find(x => x.id === (c.a === e.id ? c.b : c.a));
   const adj = new Map();
-  S.ents.forEach(e => adj.set(e.id, []));
+  /* a part that's still being installed (ghosted) isn't wired in yet — leave it out of the graph */
+  S.ents.forEach(e => { if (!e.installing) adj.set(e.id, []); });
   healthy.forEach(c => {
     if (adj.has(c.a) && adj.has(c.b)) { adj.get(c.a).push(c.b); adj.get(c.b).push(c.a); }
   });
@@ -411,15 +381,15 @@ function recompute() {
     return;
   }
   S.ents.forEach(e => {
-    if (e.type === 'gpu') {
+    if (e.type === 'gpu' && !e.installing) {
       const r = reachTypes(e);
       e.online = r.types.has('cpu') && r.types.has('mem');
       if (e.online) { online++; tput += CAT.gpu.tput; }
     } else e.online = false;
   });
   const cpuReach = new Set();
-  S.ents.filter(e => e.type === 'cpu').forEach(cpu => reachTypes(cpu).seen.forEach(id => cpuReach.add(id)));
-  const memsReach = S.ents.filter(e => e.type === 'mem' && cpuReach.has(e.id)).length;
+  S.ents.filter(e => e.type === 'cpu' && !e.installing).forEach(cpu => reachTypes(cpu).seen.forEach(id => cpuReach.add(id)));
+  const memsReach = S.ents.filter(e => e.type === 'mem' && !e.installing && cpuReach.has(e.id)).length;
   const nicUp = S.ents.some(e => e.type === 'nic' && (() => {
     const r = reachTypes(e); return r.types.has('cpu') && r.types.has('uplink');
   })());
@@ -472,7 +442,7 @@ function tryPlaceEnt(type, i, j) {
     return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
   }
   if (isIsland(type) && !islandSpaced(i, j)) return say('Islands need elbow room — drop it a few tiles from the others.');
-  const ne = { id: idSeq++, type, i, j };
+  const ne = { id: idSeq++, type, i, j, installing: true };
   S.ents.push(ne);
   recompute();
   sendInstaller(ne);
@@ -991,18 +961,40 @@ function workerSpot() {
 }
 function placeWorkers() {
   workerGen = workerSpot;
+  installQueue = [];
   const chip = islandEdit || !S.level.islands;
   const islandCount = S.ents.filter(e => e.type === 'srv' || e.type === 'core').length;
   const showN = chip ? 6 : Math.max(2, Math.min(7, islandCount * 2));
   workers.forEach((wk, i) => {
     const show = workersOn && !fpMode && i < showN;
     wk.mesh.visible = show;
+    wk.installId = null;
     if (!show) return;
     const p = workerSpot(); wk.x = p.x; wk.z = p.z; wk.y = p.y;
     const t = workerSpot(); wk.tx = t.x; wk.tz = t.z; wk.pause = Math.random() * 1.5; wk.targetFix = t.fix; wk.fixing = false;
     wk.mesh.position.set(wk.x, wk.y, wk.z);
     wk.mesh.scale.setScalar(p.s);
   });
+}
+/* parts you've dropped that still need a helper to walk over and set them up */
+let installQueue = [];   // ent ids
+function entById(id) { return S.ents.find(e => e.id === id); }
+function finishInstall(id) {
+  const e = entById(id);
+  if (e && e.installing) { e.installing = false; recompute(); }   // recompute → syncScene un-ghosts it
+}
+/* hand a free helper the next pending install job (walk it to that ghost part) */
+function assignInstall(wk) {
+  while (installQueue.length) {
+    const id = installQueue.shift();
+    const e = entById(id);
+    if (e && e.installing) {
+      const c = entCenter(e);
+      wk.installId = id; wk.tx = c.x; wk.tz = c.z; wk.targetFix = true; wk.pause = 0; wk.fixing = false;
+      return true;
+    }
+  }
+  return false;
 }
 function updateWorkers(dt, t) {
   workers.forEach(wk => {
@@ -1017,14 +1009,17 @@ function updateWorkers(dt, t) {
         if (wr) wr.visible = false;
         wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 3 + wk.phase)) * 0.008;
       }
+      if (wk.pause <= 0) {   // done working here
+        if (wk.installId != null) { finishInstall(wk.installId); wk.installId = null; }
+        if (!assignInstall(wk)) { const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; wk.targetFix = nt.fix; wk.fixing = false; }
+      }
       return;
     }
     if (wr) wr.visible = false;
     const dx = wk.tx - wk.x, dz = wk.tz - wk.z, d = Math.hypot(dx, dz);
     if (d < 0.12) {
       wk.fixing = !!wk.targetFix;   // arrived at a component → get to work
-      wk.pause = wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4);
-      const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; wk.targetFix = nt.fix;
+      wk.pause = wk.installId != null ? 1.5 : (wk.fixing ? (1.6 + Math.random() * 2.4) : (0.5 + Math.random() * 1.4));
       return;
     }
     const step = Math.min(d, wk.spd * dt);
@@ -1035,14 +1030,14 @@ function updateWorkers(dt, t) {
     wk.mesh.userData.legL.rotation.x = sw; wk.mesh.userData.legR.rotation.x = -sw;
   });
 }
-/* when you drop a part, the nearest free animal trots over and installs it */
+/* when you drop a part it's a ghost until a helper installs it; queue the job and
+   nudge the nearest free helper toward it right away */
 function sendInstaller(ent) {
-  if (!workersOn || fpMode) return;
-  const c = entCenter(ent);
+  if (!workersOn || fpMode || !workers.some(w => w.mesh.visible)) { finishInstall(ent.id); return; }   // no crew to do it → just works
+  installQueue.push(ent.id);
   let best = null, bd = 1e9;
-  workers.forEach(wk => { if (!wk.mesh.visible || wk.fixing) return; const d = Math.hypot(wk.x - c.x, wk.z - c.z); if (d < bd) { bd = d; best = wk; } });
-  if (!best) return;
-  best.tx = c.x; best.tz = c.z; best.targetFix = true; best.pause = 0; best.fixing = false;
+  workers.forEach(wk => { if (!wk.mesh.visible || wk.fixing || wk.installId != null) return; const d = Math.hypot(wk.x - entCenter(ent).x, wk.z - entCenter(ent).z); if (d < bd) { bd = d; best = wk; } });
+  if (best) assignInstall(best);
 }
 
 /* ---- space mode: starfield, bright stars, galaxies + shooting stars ---- */
@@ -1465,6 +1460,15 @@ function scaleMiniServers() {
   const k = Math.max(1, Math.min(6, 1 + (46 - dist) / (46 - 8) * 5));
   miniGroup.children.forEach(g => g.scale.setScalar(k));
 }
+/* a part waiting to be installed shows as a translucent ghost; once a helper
+   finishes setting it up it snaps to solid and starts working */
+function setInstallGhost(m, on) {
+  if (m.userData.ghost === on) return;
+  m.userData.ghost = on;
+  m.traverse(o => {
+    if (o.isMesh && o.material) { o.material.transparent = on; o.material.opacity = on ? 0.32 : 1; o.material.depthWrite = !on; o.material.needsUpdate = true; }
+  });
+}
 function syncScene() {
   /* entities */
   const liveIds = new Set(S.ents.map(e => e.id));
@@ -1485,6 +1489,7 @@ function syncScene() {
       entMeshes.set(e.id, m);
     }
     m.userData.target = entCenter(e);
+    setInstallGhost(m, !!e.installing);
   });
   /* retimers — keyed by id, positioned on their cable's arc by positionRetimers */
   const liveR = new Set(S.retimers.map(r => r.id));
@@ -2719,6 +2724,7 @@ window.G3D = {
   enterFP, exitFP, get fpMode() { return fpMode; }, placeWorkers, get workers() { return workers; },
   get cableCurves() { return cableCurves; }, get retimers() { return S.retimers; },
   scaleMiniServers, get miniGroup() { return miniGroup; }, controls,
+  updateWorkers, finishInstall,
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
 };
