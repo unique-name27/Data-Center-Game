@@ -266,7 +266,7 @@ const LEVELS = [
     goals: [{ text: 'Keep the GPUs online — score is your uptime', check: () => false }],
     lesson: `<h2>Survival — keep the islands alive</h2>
       <p>Four islands, each with a humming little server. Now <b>keep them alive.</b> Links fail over time — and it only gets worse as your shift wears on.</p>
-      <p>When a link drops it turns <b style="color:#e05555">red</b> and its GPU goes dark. An <b>animal engineer</b> trots over and fixes it — or <b>click the broken link</b> to send one straight there. You've got a small crew, so when several fail at once, triage.</p>
+      <p>When a link drops it turns <b style="color:#e05555">red</b> and its GPU goes dark. A <b>helper</b> trots over and fixes it — or <b>click the broken link</b> to send one straight there. You've got a small crew, so when several fail at once, triage.</p>
       <p>Your score is <b>uptime %</b>. The winning move is <b>redundancy</b>: run a <i>second</i> path to a GPU so a single failure can't take it down — build spare links in the quiet moments.</p>
       <p class="tip">Zoom out to watch the whole system, WASD over to a struggling island, and shore it up. Right-drag to orbit.</p>`
   }
@@ -1183,7 +1183,7 @@ function addEngineer() {
   updateHUD();
 }
 function removeEngineer() {
-  if (engineers.length <= 1) return say('You need at least one engineer.');
+  if (engineers.length <= 1) return say('You need at least one helper.');
   let idx = engineers.findIndex(e => e.state === 'idle');
   if (idx < 0) idx = engineers.length - 1;
   const en = engineers.splice(idx, 1)[0];
@@ -1201,7 +1201,7 @@ function dispatchEngineer(cable) {   /* manual override: jump an idle engineer t
   if (!S.level.survival || !cable.down) return;
   if (engineers.some(en => en.cable === cable)) return;
   const en = engineers.find(e => e.state === 'idle');
-  if (en) { en.cable = cable; en.state = 'going'; say('Engineer on the way 🔧'); }
+  if (en) { en.cable = cable; en.state = 'going'; say('Helper on the way 🔧'); }
 }
 function autoAssign() {
   const unassigned = S.cables.filter(c => c.down && !engineers.some(e => e.cable === c));
@@ -2123,7 +2123,7 @@ function updateHUD() {
     label('mTput', 'Uptime'); $('mTput').textContent = up.toFixed(1) + '%';
     label('mPower', 'Servers'); pw.textContent = S.stats.online + ' / ' + total + ' up';
     pw.classList.toggle('bad', S.stats.online < total);
-    const ec = $('engCount'); if (ec) ec.textContent = '⛴ ' + engineers.length + ' engineer' + (engineers.length > 1 ? 's' : '');
+    const ec = $('engCount'); if (ec) ec.textContent = '🔧 ' + engineers.length + ' helper' + (engineers.length > 1 ? 's' : '');
   } else {
     label('mTput', 'Throughput'); $('mTput').textContent = S.stats.tput.toFixed(1) + ' Tb/s';
     const hot = S.stats.hot || 0;
@@ -2147,7 +2147,7 @@ function updateGoals() {
       ['⏱ Shift time', Math.floor(S.survival.time) + 's'],
       ['🖥 Servers online', S.stats.online + ' / ' + total],
       ['🔴 Links down', String(down)],
-      ['⛴ Engineers free', idleEngineers() + ' / ' + engineers.length]
+      ['🔧 Helpers free', idleEngineers() + ' / ' + engineers.length]
     ];
     rows.forEach(([k, v]) => {
       const li = document.createElement('li');
@@ -2221,7 +2221,7 @@ function buildSurvivalControls() {
   div.innerHTML = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--dim,#8a93b8);margin-bottom:6px">Crew</div>' +
     '<div style="display:flex;align-items:center;gap:10px">' +
     '<button id="engMinus" style="width:34px;height:34px;font-size:20px;line-height:1;border-radius:8px;border:1px solid var(--line,#232b4a);background:var(--panel2,#171d36);color:inherit;cursor:pointer">−</button>' +
-    '<span id="engCount" style="font-weight:600;min-width:96px;text-align:center">⛴ 3 engineers</span>' +
+    '<span id="engCount" style="font-weight:600;min-width:96px;text-align:center">🔧 3 helpers</span>' +
     '<button id="engPlus" style="width:34px;height:34px;font-size:20px;line-height:1;border-radius:8px;border:1px solid var(--line,#232b4a);background:var(--panel2,#171d36);color:inherit;cursor:pointer">+</button>' +
     '</div>' +
     '<div style="font-size:12px;color:var(--dim,#8a93b8);margin-top:6px">They auto-dispatch to fix downed links — worst outage first.</div>';
