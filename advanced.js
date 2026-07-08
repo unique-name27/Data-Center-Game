@@ -122,12 +122,34 @@ const ALLOWED_BOARD = {
 };
 
 /* ---------------- levels ---------------- */
+/* the shared four-island map — one continuous sea used by every mode.
+   [i0,j0,i1,j1] tile rects, spaced well apart with open water between them */
+const MAP_GW = 38, MAP_GH = 28;
+const MAP_PADS = [[3, 3, 14, 10], [23, 3, 34, 10], [3, 17, 14, 24], [23, 17, 34, 24]];
+/* a simple working server (CPU + 2 GPUs + memory, traced together) on one island pad */
+function islandServer(pad) {
+  const i0 = pad[0], j0 = pad[1];
+  /* every link is 2 tiles — short enough that a plain trace stays healthy */
+  const ents = [
+    { t: 'cpu', i: i0 + 3, j: j0 + 3 },
+    { t: 'gpu', i: i0 + 5, j: j0 + 3 },
+    { t: 'gpu', i: i0 + 1, j: j0 + 3 },
+    { t: 'mem', i: i0 + 3, j: j0 + 5 }
+  ];
+  const cables = [[0, 1], [0, 2], [0, 3]];   // cpu→gpu, cpu→gpu, cpu→mem (local indices)
+  return { ents, cables };
+}
+const SURV_PRE = [], SURV_CABLES = [];
+MAP_PADS.forEach(pad => {
+  const srv = islandServer(pad), base = SURV_PRE.length;
+  srv.ents.forEach(e => SURV_PRE.push(e));
+  srv.cables.forEach(c => SURV_CABLES.push({ a: base + c[0], b: base + c[1], type: 'trace' }));
+});
+
 const LEVELS = [
   {
     title: 'Campaign — four islands, one map', campaign: true,
-    gw: 34, gh: 26,
-    /* four small server islands on one continuous sea — [i0,j0,i1,j1] tile rects */
-    pads: [[3, 3, 14, 10], [19, 3, 30, 10], [3, 15, 14, 22], [19, 15, 30, 22]],
+    gw: MAP_GW, gh: MAP_GH, pads: MAP_PADS,
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [{ t: 'cpu', i: 8, j: 6 }],
     goals: [
@@ -225,33 +247,28 @@ const LEVELS = [
       <p class="tip">A GPU sparkles green when it can reach a CPU and memory. Right-drag to orbit, scroll to zoom.</p>`
   },
   {
-    title: 'Free build — one hall', sandbox: true, islands: true,
-    tools: ['srv', 'core', 'aecb', 'aocb'],
-    pre: [{ t: 'core', i: 8, j: 4 }],
-    goals: [{ text: 'Grow a data hall your way', check: () => false }],
-    lesson: `<h2>Free build — one hall</h2>
-      <p>No objectives — just build. Drop <b>server islands</b> and <b>core switch islands</b> anywhere on the sea, <b>scroll in</b> on an island to build its server, and wire everything together with <b>AEC</b> and <b>AOC</b> cables.</p>
-      <p>New: <b>cables have capacity</b>. A server island pushes <b>6.4 Tb/s</b>, but one AEC only carries <b>4</b>. When a link is overloaded it glows <b style="color:#e05555">red</b>; add parallel cables or switch to a fatter <b>AOC (10 Tb/s)</b> until it cools to <b style="color:#43d15f">green</b>.</p>
-      <p class="tip">Islands need a little elbow room — drop them a couple of tiles apart. Drag to rearrange, Del to remove.</p>`
+    title: 'Free build — four islands', sandbox: true, free: true,
+    gw: MAP_GW, gh: MAP_GH, pads: MAP_PADS,
+    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
+    pre: [],
+    goals: [{ text: 'Build anything you like across the islands', check: () => false }],
+    lesson: `<h2>Free build — four islands</h2>
+      <p>No objectives — just build. You've got <b>four islands on one sea</b>. Drop <b>CPUs</b>, hang GPUs and memory off <b>PCIe switches</b> and <b>CXL controllers</b>, and wire it all with <b>traces</b>, <b>AEC</b> and <b>AOC</b> cables.</p>
+      <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea. Your little crew of animals installs each part as you drop it.</p>
+      <p class="tip">Between islands is open water — reach across with an <b>AEC</b> or <b>AOC</b>, never a board trace. Drag to rearrange, Del to remove.</p>`
   },
   {
-    title: 'Survival — Keep it alive', sandbox: true, islands: true, survival: true,
-    tools: ['aecb', 'aocb'],
-    pre: [
-      { t: 'core', i: 8, j: 4 },
-      { t: 'srv', i: 2, j: 1 }, { t: 'srv', i: 14, j: 1 },
-      { t: 'srv', i: 2, j: 7 }, { t: 'srv', i: 14, j: 7 }
-    ],
-    preCables: [
-      { a: 1, b: 0, type: 'aecb' }, { a: 2, b: 0, type: 'aocb' },
-      { a: 3, b: 0, type: 'aocb' }, { a: 4, b: 0, type: 'aecb' }
-    ],
-    goals: [{ text: 'Keep the servers online — score is your uptime', check: () => false }],
-    lesson: `<h2>Survival — Keep it alive</h2>
-      <p>The rack is built and humming. Now <b>keep it alive.</b> Links fail over time — <b>optics (AOC) fail more often than copper (AEC)</b>, and it only gets worse as your shift wears on.</p>
-      <p>When a link drops it turns <b style="color:#e05555">red</b> and its server may go dark. <b>Click the broken link</b> to send an <b>engineer boat</b> out to repair it. You’ve got a small crew — when several fail at once, triage: save the link feeding the most servers first.</p>
-      <p>Your score is <b>uptime %</b>. The winning move is <b>redundancy</b>: run a <i>second</i> cable from a server to the core (dual-home it) and a single failure won’t take it down at all — build spare links in the quiet moments.</p>
-      <p class="tip">AEC where you can, AOC only where you must — copper fails less. Right-drag to orbit.</p>`
+    title: 'Survival — keep the islands alive', sandbox: true, survival: true,
+    gw: MAP_GW, gh: MAP_GH, pads: MAP_PADS,
+    tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
+    pre: SURV_PRE,
+    preCables: SURV_CABLES,
+    goals: [{ text: 'Keep the GPUs online — score is your uptime', check: () => false }],
+    lesson: `<h2>Survival — keep the islands alive</h2>
+      <p>Four islands, each with a humming little server. Now <b>keep them alive.</b> Links fail over time — and it only gets worse as your shift wears on.</p>
+      <p>When a link drops it turns <b style="color:#e05555">red</b> and its GPU goes dark. An <b>animal engineer</b> trots over and fixes it — or <b>click the broken link</b> to send one straight there. You've got a small crew, so when several fail at once, triage.</p>
+      <p>Your score is <b>uptime %</b>. The winning move is <b>redundancy</b>: run a <i>second</i> path to a GPU so a single failure can't take it down — build spare links in the quiet moments.</p>
+      <p class="tip">Zoom out to watch the whole system, WASD over to a struggling island, and shore it up. Right-drag to orbit.</p>`
   }
 ];
 
@@ -455,8 +472,10 @@ function tryPlaceEnt(type, i, j) {
     return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
   }
   if (isIsland(type) && !islandSpaced(i, j)) return say('Islands need elbow room — drop it a few tiles from the others.');
-  S.ents.push({ id: idSeq++, type, i, j });
+  const ne = { id: idSeq++, type, i, j };
+  S.ents.push(ne);
   recompute();
+  sendInstaller(ne);
   if (isIsland(type)) refreshIslands();
 }
 function tryPlaceRet(cableId, t) {
@@ -593,7 +612,7 @@ let overscroll = 0, lastWheel = 0;
 let islandEdit = null;      // { outerS, ent } while zoomed inside one island's server
 let carriedServer = null;   // your last server build, carried forward into the island lessons
 function campaignIdx() { return LEVELS.findIndex(L => L.campaign); }
-function freeBuildIdx() { return LEVELS.findIndex(L => L.sandbox && L.islands && !L.survival); }
+function freeBuildIdx() { return LEVELS.findIndex(L => L.free); }
 const SERVER_TOOLS = ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'retimer'];
 
 /* a simple pre-built working server (CPU + GPU + DIMM, traced) for seeding islands */
@@ -960,6 +979,11 @@ function workerSpot() {
       const e = parts[(Math.random() * parts.length) | 0], sz = esize(e.type);
       return { x: tX(e.i) + (sz[0] - 1) / 2 + (Math.random() - 0.5) * 0.55, z: tZ(e.j) + (sz[1] - 1) / 2 + (Math.random() - 0.5) * 0.55, y: 0.01, s: 0.5, fix: true };
     }
+    if (S.level.pads) {   // wander around on one of the islands (never onto the water)
+      const r = S.level.pads[(Math.random() * S.level.pads.length) | 0];
+      const cx = (tX(r[0]) + tX(r[2])) / 2, cz = (tZ(r[1]) + tZ(r[3])) / 2;
+      return { x: cx + (Math.random() - 0.5) * (r[2] - r[0] - 1), z: cz + (Math.random() - 0.5) * (r[3] - r[1] - 1), y: 0.01, s: 0.55, fix: false };
+    }
     const w = GRID_W / 2 - 0.6, h = GRID_H / 2 - 0.6;
     return { x: (Math.random() * 2 - 1) * w, z: (Math.random() * 2 - 1) * h, y: 0.01, s: 0.5, fix: false };
   }
@@ -1013,6 +1037,15 @@ function updateWorkers(dt, t) {
     const sw = Math.sin(t * 9 + wk.phase) * 0.5;
     wk.mesh.userData.legL.rotation.x = sw; wk.mesh.userData.legR.rotation.x = -sw;
   });
+}
+/* when you drop a part, the nearest free animal trots over and installs it */
+function sendInstaller(ent) {
+  if (!workersOn || fpMode) return;
+  const c = entCenter(ent);
+  let best = null, bd = 1e9;
+  workers.forEach(wk => { if (!wk.mesh.visible || wk.fixing) return; const d = Math.hypot(wk.x - c.x, wk.z - c.z); if (d < bd) { bd = d; best = wk; } });
+  if (!best) return;
+  best.tx = c.x; best.tz = c.z; best.targetFix = true; best.pause = 0; best.fixing = false;
 }
 
 /* ---- space mode: starfield, bright stars, galaxies + shooting stars ---- */
@@ -1115,22 +1148,13 @@ function updateSpace(dt, t) {
 
 /* ---- survival: engineer boats that repair downed links ---- */
 let engineers = [];
+/* engineers are little animals that trot across the islands to repair downed links */
 function buildBoat() {
-  const g = new THREE.Group();
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.26, 1.05, 1, 1, 1), toon(0x8a5a33)); hull.position.y = 0.1; hull.castShadow = true;
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.66), toon(0xb5895a)); deck.position.y = 0.25;
-  const cabin = new THREE.Mesh(new RoundedBoxGeometry(0.32, 0.26, 0.3, 2, 0.05), toon(0xeae2d2)); cabin.position.set(0, 0.4, -0.16);
-  /* an animal crew member mans the boat */
-  const critter = buildAnimal((Math.random() * ANIMAL_KINDS.length) | 0);
-  critter.scale.setScalar(0.62); critter.position.set(0, 0.28, 0.16);
-  const wrench = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.03, 6, 14),
-    new THREE.MeshToonMaterial({ color: 0x8dffb8, gradientMap: gradTex, emissive: 0x2fbf6a, emissiveIntensity: 1.2 }));
-  wrench.position.set(0, 0.78, 0.16); wrench.visible = false;
-  g.add(hull, deck, cabin, critter, wrench);
-  g.userData.wrench = wrench;
+  const g = buildAnimal((Math.random() * ANIMAL_KINDS.length) | 0);   // already carries legL/legR + a wrench
+  g.scale.setScalar(1.05);
   return g;
 }
-const BOAT_Y = -1.32;
+const BOAT_Y = 0.02;   // engineers walk on the ground
 function cableMid(c) {
   const A = S.ents.find(e => e.id === c.a), B = S.ents.find(e => e.id === c.b);
   const p = entCenter(A).lerp(entCenter(B), 0.5); p.y = BOAT_Y; return p;
@@ -1140,15 +1164,14 @@ function faceBoat(m, target) {
   if (dx * dx + dz * dz > 0.01) m.rotation.y = Math.atan2(dx, dz);
 }
 const MAX_ENGINEERS = 6;
-function coreCenter() { const c = S.ents.find(e => e.type === 'core'); return c ? entCenter(c) : new THREE.Vector3(0, 0, 0); }
-function engineerHome(k, n, c) {
-  const spread = Math.min(1.9, 0.5 * n);
-  const ang = n > 1 ? -spread / 2 + (spread * k) / (n - 1) : 0;
-  return new THREE.Vector3(c.x + Math.sin(ang) * 2.9, BOAT_Y, c.z + 2.7 + Math.cos(ang) * 0.35);
+/* park each engineer on one of the islands so it has dry land to idle on */
+function engineerHome(k) {
+  const pads = (S && S.level.pads) || MAP_PADS;
+  const c = padCenterWorld(pads[k % pads.length]);
+  return new THREE.Vector3(c.x + 2.6, BOAT_Y, c.z + 2.2);
 }
 function repositionDocks() {
-  const c = coreCenter();
-  engineers.forEach((en, k) => { en.home = engineerHome(k, engineers.length, c); });
+  engineers.forEach((en, k) => { en.home = engineerHome(k); });
 }
 function addEngineer() {
   if (engineers.length >= MAX_ENGINEERS) return say('That’s a full crew (' + MAX_ENGINEERS + ').');
@@ -1178,12 +1201,13 @@ function dispatchEngineer(cable) {   /* manual override: jump an idle engineer t
   if (!S.level.survival || !cable.down) return;
   if (engineers.some(en => en.cable === cable)) return;
   const en = engineers.find(e => e.state === 'idle');
-  if (en) { en.cable = cable; en.state = 'going'; say('Engineer sent ⛴'); }
+  if (en) { en.cable = cable; en.state = 'going'; say('Engineer on the way 🔧'); }
 }
 function autoAssign() {
   const unassigned = S.cables.filter(c => c.down && !engineers.some(e => e.cable === c));
   if (!unassigned.length) return;
-  const impact = c => S.ents.filter(e => e.type === 'srv' && !e.online && (c.a === e.id || c.b === e.id)).length;
+  /* a downed trace touching a CPU strands more GPUs — fix those first */
+  const impact = c => (S.ents.some(e => (e.id === c.a || e.id === c.b) && e.type === 'cpu') ? 3 : 1);
   unassigned.sort((a, b) => impact(b) - impact(a));
   for (const c of unassigned) {
     const en = engineers.find(e => e.state === 'idle');
@@ -1195,7 +1219,7 @@ function idleEngineers() { return engineers.filter(e => e.state === 'idle').leng
 function updateSurvival(dt, t) {
   const sv = S.survival; if (!sv) return;
   sv.time += dt;
-  const total = S.ents.filter(e => e.type === 'srv').length || 1;
+  const total = S.ents.filter(e => e.type === 'gpu').length || 1;
   sv.upNum += (S.stats.online / total) * dt; sv.upDen += dt;
   /* failures — optics fail more than copper; cadence tightens over time */
   sv.sinceFail -= dt;
@@ -1212,21 +1236,23 @@ function updateSurvival(dt, t) {
   }
   autoAssign();   /* idle engineers automatically head to downed links, worst first */
   engineers.forEach(en => {
-    const m = en.mesh, wr = m.userData.wrench;
-    m.position.y = BOAT_Y + Math.sin(t * 2 + m.id) * 0.03;
+    const m = en.mesh, wr = m.userData.wrench, lg = m.userData;
+    const walk = () => { const sw = Math.sin(t * 10 + m.id) * 0.6; if (lg.legL) { lg.legL.rotation.x = sw; lg.legR.rotation.x = -sw; } m.position.y = BOAT_Y + Math.abs(Math.sin(t * 10 + m.id)) * 0.02; };
+    const stand = () => { if (lg.legL) { lg.legL.rotation.x *= 0.8; lg.legR.rotation.x *= 0.8; } m.position.y = BOAT_Y; };
     if (en.cable && !S.cables.includes(en.cable)) { en.cable = null; en.state = 'returning'; }
-    if (en.state === 'idle') { wr.visible = false; m.rotation.y += dt * 0.15; }
+    if (en.state === 'idle') { wr.visible = false; stand(); }
     else if (en.state === 'going') {
-      const tp = cableMid(en.cable); faceBoat(m, tp);
-      m.position.lerp(tp, Math.min(1, dt * (1.7 + boatBoost())));
-      if (m.position.distanceTo(tp) < 0.45) { en.state = 'fixing'; en.timer = 3 * repairMul(); }
+      const tp = cableMid(en.cable); faceBoat(m, tp); walk();
+      m.position.lerp(tp, Math.min(1, dt * (1.7 + boatBoost()))); m.position.y = BOAT_Y + Math.abs(Math.sin(t * 10 + m.id)) * 0.02;
+      if (m.position.distanceTo(tp) < 0.5) { en.state = 'fixing'; en.timer = 3 * repairMul(); }
     } else if (en.state === 'fixing') {
-      wr.visible = true; wr.rotation.z += dt * 9;
+      wr.visible = true; wr.rotation.z += dt * 9; stand();
+      m.position.y = BOAT_Y + Math.abs(Math.sin(t * 8 + m.id)) * 0.02;   // tap-tap
       en.timer -= dt;
       if (en.timer <= 0) { en.cable.down = false; recompute(); say('✓ Link repaired!'); en.state = 'returning'; en.cable = null; }
     } else if (en.state === 'returning') {
-      wr.visible = false; faceBoat(m, en.home);
-      m.position.lerp(en.home, Math.min(1, dt * 2));
+      wr.visible = false; faceBoat(m, en.home); walk();
+      m.position.lerp(en.home, Math.min(1, dt * 2)); m.position.y = BOAT_Y + Math.abs(Math.sin(t * 10 + m.id)) * 0.02;
       if (m.position.distanceTo(en.home) < 0.3) en.state = 'idle';
     }
   });
