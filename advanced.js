@@ -124,10 +124,12 @@ const ALLOWED_BOARD = {
 /* ---------------- levels ---------------- */
 const LEVELS = [
   {
-    title: 'Campaign — one continuous floor', campaign: true,
-    gw: 40, gh: 24,
+    title: 'Campaign — four islands, one map', campaign: true,
+    gw: 34, gh: 26,
+    /* four small server islands on one continuous sea — [i0,j0,i1,j1] tile rects */
+    pads: [[3, 3, 14, 10], [19, 3, 30, 10], [3, 15, 14, 22], [19, 15, 30, 22]],
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'trace', 'aecb', 'aocb', 'retimer'],
-    pre: [{ t: 'cpu', i: 19, j: 11 }],
+    pre: [{ t: 'cpu', i: 8, j: 6 }],
     goals: [
       { text: 'Bring your first GPU online (it needs a CPU + memory)', check: s => s.stats.online >= 1,
         hint: 'Place a <b>DIMM</b> and a <b>GPU</b> next to the CPU, pick <b>Trace</b>, and wire each to the CPU. A GPU only lights up when it can reach a CPU <i>and</i> memory.' },
@@ -140,10 +142,10 @@ const LEVELS = [
       { text: 'A humming floor — 16 GPUs online', check: s => s.stats.online >= 16,
         hint: 'Keep growing the floor. Zoom out to see the whole system, WASD over to a quiet corner, and build. Retimers and AOC keep the long links alive.' }
     ],
-    lesson: `<h2>Advanced — one continuous floor</h2>
-      <p>This whole green floor is <b>one map</b>. You start on your first server — place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
-      <p>There's no separate "hall" view. <b>Scroll to zoom</b> from a GPU close-up all the way out to the whole system, and hold <b>WASD</b> to glide across the floor. Build more servers wherever you like and link them together — everything lives on this one continuous map.</p>
-      <p class="tip">Signals still fade with distance: on long runs drop a <b>retimer</b> on the wire, or reach with an <b>AEC</b> (retimed copper) or <b>AOC</b> (optical) cable.</p>`
+    lesson: `<h2>Advanced — four islands, one map</h2>
+      <p>The map is <b>four little server islands</b> on one sea — all one continuous world, no separate views. You start focused on the <b>first island</b>: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
+      <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea to the next island and build its server too. Everything lives on this one map.</p>
+      <p class="tip">Between islands is open water — no board to etch a trace onto. Reach across with an <b>AEC</b> (retimed copper) or <b>AOC</b> (optical) cable, and drop <b>retimers</b> on long runs.</p>`
   },
   {
     title: 'Lesson 1 — Inside the server', hidden: true,
@@ -297,10 +299,17 @@ function entAt(i, j) { return S.ents.find(e => e.i === i && e.j === j); }
 function entCovering(i, j) {
   return S.ents.find(e => { const s = esize(e.type); return i >= e.i && i < e.i + s[0] && j >= e.j && j < e.j + s[1]; });
 }
+/* on the four-island map, a tile is buildable only if it's on one of the island pads */
+function inPads(i, j) {
+  const pads = S && S.level.pads; if (!pads) return true;
+  return pads.some(r => i >= r[0] && i <= r[2] && j >= r[1] && j <= r[3]);
+}
+function padCenterWorld(r) { return { x: (tX(r[0]) + tX(r[2])) / 2, z: (tZ(r[1]) + tZ(r[3])) / 2 }; }
 function fits(type, i, j, ignore) {
   const s = esize(type);
   if (i < 0 || j < 0 || i + s[0] > GRID_W || j + s[1] > GRID_H) return false;
   for (let a = 0; a < s[0]; a++) for (let b = 0; b < s[1]; b++) {
+    if (!inPads(i + a, j + b)) return false;
     const e = entCovering(i + a, j + b);
     if (e && e !== ignore) return false;
   }
@@ -441,7 +450,10 @@ function islandSpaced(i, j, ignore) {
 function refreshIslands() { if (S.level.islands) buildWorld(S.level); }
 function tryPlaceEnt(type, i, j) {
   const s = esize(type);
-  if (!fits(type, i, j)) return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
+  if (!fits(type, i, j)) {
+    if (S.level.pads && (!inPads(i, j) || !inPads(i + s[0] - 1, j + s[1] - 1))) return say('That’s open water — build on one of the islands.');
+    return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
+  }
   if (isIsland(type) && !islandSpaced(i, j)) return say('Islands need elbow room — drop it a few tiles from the others.');
   S.ents.push({ id: idSeq++, type, i, j });
   recompute();
@@ -829,6 +841,16 @@ function buildWorld(level) {
       tree(worldGroup, cx + w * 0.32, cz - d * 0.32, big ? 0.8 : 0.6);
       flowerPatch(worldGroup, cx - w * 0.3, cz + d * 0.28);
       if (!big) rock(worldGroup, cx - w * 0.32, cz - d * 0.3, 0.6);
+    });
+  } else if (level.pads) {
+    /* four (or more) small server islands laid out on one continuous sea */
+    level.pads.forEach(r => {
+      const cx = (tX(r[0]) + tX(r[2])) / 2, cz = (tZ(r[1]) + tZ(r[3])) / 2;
+      const w = r[2] - r[0] + 1, d = r[3] - r[1] + 1;
+      makeIsland(worldGroup, cx, cz, w + 1.4, d + 1.4, w, d, 0.7);
+      tree(worldGroup, cx - w / 2 - 0.15, cz - d / 2 - 0.15, 0.8);
+      flowerPatch(worldGroup, cx + w / 2 - 0.3, cz + d / 2 - 0.25);
+      rock(worldGroup, cx - w / 2 + 0.3, cz + d / 2 - 0.1, 0.55);
     });
   } else {
     makeIsland(worldGroup, 0, 0, GRID_W + 1.4, GRID_H + 1.4, GRID_W, GRID_H, 0.7);
@@ -2264,6 +2286,13 @@ function startLevel(idx) {
   if (S.level.campaign && S.level.islands) {
     const first = S.ents.find(e => e.type === 'srv');
     if (first) enterIsland(first);
+  }
+  /* four-island map: open the game focused on the first island */
+  if (S.level.pads) {
+    const c = padCenterWorld(S.level.pads[0]);
+    controls.target.set(c.x, 0, c.z);
+    camera.position.set(c.x, 9, c.z + 7.5);
+    controls.update();
   }
 }
 
