@@ -102,11 +102,13 @@ const RET = {
    One helps you connect the islands, the other helps you keep them connected. ---- */
 let suite = false, interop = false, upgBtns = [];
 function upgActive()  { return !!(S && S.level && S.level.pads); }   // the fabric maps (campaign / free build)
-function lossMul()    { return upgActive() && interop ? 0.6 : 1; }   // Interop: 40% less signal loss = more reach
-function capMul()     { return upgActive() && interop ? 1.30 : 1; }
-function failGapMul() { return suite ? 1.9 : 1; }                    // Suite: much longer between link drops
-function repairMul()  { return suite ? 0.5 : 1; }                    // Suite: helpers install / repair in half the time
-function boatBoost()  { return suite ? 0.9 : 0; }                    // Suite: helpers hustle to the job faster
+function interopOn()  { return interop && isUnlocked('interop'); }   // only once it's been unlocked
+function suiteOn()    { return suite && isUnlocked('suite'); }
+function lossMul()    { return upgActive() && interopOn() ? 0.6 : 1; }   // Interop: 40% less signal loss = more reach
+function capMul()     { return upgActive() && interopOn() ? 1.30 : 1; }
+function failGapMul() { return suiteOn() ? 1.9 : 1; }                    // Suite: much longer between link drops
+function repairMul()  { return suiteOn() ? 0.5 : 1; }                    // Suite: helpers install / repair in half the time
+function boatBoost()  { return suiteOn() ? 0.9 : 0; }                    // Suite: helpers hustle to the job faster
 function setSuite(on)   { suite = !!on;   recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 function setInterop(on) { interop = !!on; recompute(); if (S.level.islands) refreshIslands(); updateHUD(); }
 const ALLOWED_BOARD = {
@@ -2899,6 +2901,7 @@ requestAnimationFrame(animate);
   mk('btnSuite', '📊 Suite ✓', '📊 Telemetry Suite',
      'Telemetry Suite — UPTIME: inter-island links drop far less often, and helpers install & repair twice as fast',
      () => suite, setSuite, 'dct3d_suite', '📊 Telemetry Suite online — steadier links, faster helpers.');
+  updateHUD();   // these buttons are created after boot — gate them by unlock now
 })();
 
 /* testing hooks */
