@@ -6,21 +6,23 @@ A browser game that teaches how data actually moves inside a data center — and
 
 | Edition | Link |
 |---|---|
-| **🧪 Advanced edition** (in development) | **https://unique-name27.github.io/Data-Center-Game/advanced.html** |
+| **🧪 Advanced edition** (flagship — one-map campaign) | **https://unique-name27.github.io/Data-Center-Game/advanced.html** |
 | ✨ 3D island edition | **https://unique-name27.github.io/Data-Center-Game/3d.html** |
 | 2D edition | **https://unique-name27.github.io/Data-Center-Game/** |
 | Classic prototype (Data Center Builder) | https://unique-name27.github.io/Data-Center-Game/classic.html |
 
 ### 🧪 Advanced edition
 
-A fork of the 3D edition, grown into **one continuous, persistent world**. There are no separate lesson maps — you move through a single data hall by **zooming**:
+The flagship: a fork of the 3D edition grown into **one continuous world** — a single sea with **four small server islands**, each its own **biome** (meadow, desert, snow, volcanic). There's no separate "hall" view and no diving in and out. You **scroll to zoom** from a GPU close-up all the way out to the whole system, and hold **WASD** to glide across the sea from one island to the next. Everything you build lives on the one map.
 
-- **Scroll in** on a server island to dive onto its board and build the server; **scroll out** to pull back to the whole hall and wire your servers to the core. Your build stays put across every scale.
-- A **guided campaign** walks you through it with clear, step-by-step objectives that light up the current step and advance as you finish each one — *place a CPU → add memory → bring a GPU online* inside a server, then *cable it to the core → add more servers → add redundancy → grow the hall* out in the hall. Finishing an objective never wipes your progress.
-- Three modes on the same map: **Campaign** (guided, default), **Free build**, and **Survival**.
-- Extras: **flat grid-routed wires** you click to drop retimers on, a menagerie of **little critters** that wander every scale, a **first-person "walk the floor"** mode, and a full **360° camera** orbit.
+- **Guided campaign.** Step-by-step objectives light up the current step and advance as you finish each one — *bring a GPU online → beat the CPU's 4-port limit with a PCIe switch → add CXL memory → build a second island's server → bridge two islands with a NIC-to-NIC ethernet cable → network the islands together → a humming 16-GPU floor*. Finishing an objective never wipes your progress.
+- **Progressive unlocks.** You start with only the basics (CPU, GPU, memory, trace) and **earn the rest by clearing objectives** — switches and retimers, then a memory controller, then the networking gear (NIC, AEC, AOC) and two operator upgrades. Each new unlock announces itself.
+- **Animal helpers.** Every part you drop lands as a **see-through ghost** and doesn't work until one of your little **helper animals** trots over and installs it. Later, once you've wired islands together with ethernet, those inter-island links **drop now and then** — a free helper walks over and repairs them.
+- **Two ops upgrades**, earned late in the campaign (always on in Free build): **🔬 Interop Lab** boosts *reach* (−40% signal loss, so links run further and need fewer retimers), and **📊 Telemetry Suite** boosts *uptime* (links drop far less often, and helpers install & repair twice as fast).
+- **Two modes** on the same map: **Campaign** (guided, default) and **Free build** (everything unlocked).
+- Plus a **first-person "walk the floor"** mode, a full **360° camera** orbit, a **🌙 space / ☀ day** sky toggle with a starfield, and procedural **♪ lofi**.
 
-Deeper topology (rows, halls, leaf-spine) and connectivity depth (more link types) are on the way.
+Deeper topology (rows, leaf-spine) and more link types are on the way.
 
 No install, no accounts, no build step — it runs in any modern browser. The 3D edition loads [Three.js](https://threejs.org/) from a CDN, so it needs an internet connection; the 2D edition is fully offline.
 
@@ -68,7 +70,7 @@ Extras: a **🌙 Space / ☀ Day** button swaps the sky for a starfield with sho
 
 ## Tech
 
-- Vanilla JavaScript, no framework. The 2D edition is one `index.html` + `style.css` + `game.js` on a 2D canvas; the 3D edition is `3d.html` + `game3d.js` using Three.js (via CDN import map) + shared `music.js`.
+- Vanilla JavaScript, no framework. The 2D edition is one `index.html` + `style.css` + `game.js` on a 2D canvas; the 3D edition is `3d.html` + `game3d.js` and the Advanced edition is `advanced.html` + `advanced.js`, both using Three.js (via CDN import map) + shared `music.js`.
 - **Everything is generated in code** — pixel-art sprites, 3D toon meshes, the lofi soundtrack. The only image assets are the original hand-made component sprites in `assets/`.
 - Level progress and preferences are saved in `localStorage`.
 
