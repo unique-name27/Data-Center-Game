@@ -1973,7 +1973,7 @@ function updatePulses(dt, now) {
 
 /* selection / hover rings, ghost */
 const selRing = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 8, 32),
-  new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradTex, emissive: 0xafc8ff, emissiveIntensity: 0.8 }));
+  new THREE.MeshBasicMaterial({ color: 0x5aa7ff }));   // matte accent blue — sits below the bloom threshold so it doesn't glow
 selRing.rotation.x = Math.PI / 2;
 selRing.position.y = 0.05;
 selRing.visible = false;
