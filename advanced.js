@@ -527,7 +527,43 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xbfe4f5);
 scene.fog = new THREE.Fog(0xcfeaf7, 30, 70);
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+/* ---- gradient sky dome (much nicer than a flat clear colour) ---- */
+function skyTexture(stops) {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 256;
+  const g = c.getContext('2d'); const grd = g.createLinearGradient(0, 0, 0, 256);
+  stops.forEach(s => grd.addColorStop(s[0], s[1]));
+  g.fillStyle = grd; g.fillRect(0, 0, 8, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const daySkyTex = skyTexture([[0, '#3f86d6'], [0.45, '#8ec6ef'], [0.8, '#d6eefb'], [1, '#eaf7ff']]);
+const spaceSkyTex = skyTexture([[0, '#02030a'], [0.4, '#0a0a22'], [0.72, '#1a1140'], [1, '#3a1f5c']]);
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(180, 40, 24),
+  new THREE.MeshBasicMaterial({ map: daySkyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
+scene.add(skyDome);
+
+/* a slow-drifting sun/glow disc for day, swapped for the ringed planet in space */
+const sunSprite = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.3, 'rgba(255,246,214,0.9)');
+  grd.addColorStop(0.7, 'rgba(255,232,170,0.25)'); grd.addColorStop(1, 'rgba(255,232,170,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+  s.scale.set(26, 26, 1); s.position.set(-70, 46, -120); scene.add(s); return s;
+})();
+
+/* a big ringed planet low on the horizon — space only */
+const planet = (() => {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(11, 32, 24),
+    new THREE.MeshStandardMaterial({ color: 0x6a5cff, emissive: 0x241a5a, emissiveIntensity: 0.7, roughness: 1, metalness: 0, fog: false }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(15, 22, 64),
+    new THREE.MeshBasicMaterial({ color: 0xc9b6ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, fog: false, depthWrite: false }));
+  ring.rotation.x = Math.PI / 2.3; ring.rotation.z = 0.3;
+  g.add(body, ring); g.position.set(64, 30, -120); g.visible = false; scene.add(g); return g;
+})();
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 600);   // headroom for the sky dome + planet
 camera.position.set(0, 14.5, 12.5);
 camera.lookAt(0, 0, 0.6);
 
@@ -548,13 +584,16 @@ controls.dampingFactor = 0.08;
 /* ---- first-person mode: walk the floor with WASD + mouse look ---- */
 const fpControls = new PointerLockControls(camera, renderer.domElement);
 let fpMode = false, fpBob = 0; const fpKeys = {};
-let fpCrossEl = null;
+let fpOverlay = null, fpHudEl = null, fpLookEl = null;
 function fpCrosshair(show) {
-  if (!fpCrossEl) {
-    fpCrossEl = document.createElement('div'); fpCrossEl.id = 'fpCross';
-    (document.getElementById('stage3d') || document.body).appendChild(fpCrossEl);
+  if (!fpOverlay) {
+    fpOverlay = document.createElement('div'); fpOverlay.id = 'fpOverlay';
+    fpOverlay.innerHTML = '<div id="fpVignette"></div><div id="fpScan"></div><div id="fpCross"></div><div id="fpLook"></div><div id="fpHud"></div>';
+    (document.getElementById('stage3d') || document.body).appendChild(fpOverlay);
+    fpHudEl = fpOverlay.querySelector('#fpHud');
+    fpLookEl = fpOverlay.querySelector('#fpLook');
   }
-  fpCrossEl.style.display = show ? '' : 'none';
+  fpOverlay.style.display = show ? '' : 'none';
 }
 function enterFP() {
   if (fpMode) return;
@@ -1268,6 +1307,9 @@ function setSpaceMode(on) {
   scene.background = new THREE.Color(on ? 0x070912 : 0xbfe4f5);
   scene.fog.color.set(on ? 0x0a0d1c : 0xcfeaf7);
   scene.fog.near = on ? 34 : 30; scene.fog.far = on ? 90 : 70;
+  skyDome.material.map = on ? spaceSkyTex : daySkyTex; skyDome.material.needsUpdate = true;
+  planet.visible = on;
+  sunSprite.visible = !on;
   starfield.visible = on;
   brightStars.visible = on;
   galaxies.forEach(g => g.visible = on);
@@ -1282,6 +1324,7 @@ function setSpaceMode(on) {
 }
 function updateSpace(dt, t) {
   if (!spaceMode) { shooters.forEach(s => { if (s.mesh.visible) s.mesh.visible = false; }); return; }
+  planet.rotation.y += dt * 0.04; planet.children[0].rotation.y += dt * 0.05;
   starMat.opacity = 0.7 + Math.sin(t * 1.6) * 0.15;
   brightMat.opacity = 0.65 + Math.abs(Math.sin(t * 2.3)) * 0.3;   // twinkle
   galaxies.forEach(g => { g.material.rotation += g.userData.spin * dt; g.material.opacity = 0.4 + Math.sin(t * 0.5 + g.userData.tw) * 0.13; });
@@ -2078,6 +2121,41 @@ function fmtData(tb) {
   if (TB >= 1) return TB.toFixed(1) + ' TB';
   return (TB * 1000).toFixed(0) + ' GB';
 }
+/* ---- ambient "data flowing" motes that rise off online GPUs ---- */
+const MOTE_COL = [0x7dffcf, 0x8fd0ff, 0xbfe8ff, 0xf5e28a];
+const motes = [];
+for (let i = 0; i < 56; i++) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6),
+    new THREE.MeshBasicMaterial({ color: MOTE_COL[i % MOTE_COL.length], transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  m.visible = false; scene.add(m);
+  motes.push({ m, life: 0, vy: 0, ph: Math.random() * 6.28 });
+}
+let moteTimer = 0;
+function updateMotes(dt, t) {
+  motes.forEach(p => {
+    if (p.life <= 0) return;
+    p.life -= dt;
+    p.m.position.y += p.vy * dt;
+    p.m.position.x += Math.sin(t * 2 + p.ph) * 0.16 * dt;
+    p.m.material.opacity = Math.min(1, p.life) * 0.85;
+    if (p.life <= 0) p.m.visible = false;
+  });
+  if (!S) return;
+  moteTimer -= dt;
+  if (moteTimer <= 0) {
+    const gpus = S.ents.filter(e => e.type === 'gpu' && e.online);
+    if (gpus.length) {
+      const e = gpus[(Math.random() * gpus.length) | 0], p = motes.find(x => x.life <= 0);
+      if (p) {
+        const c = entCenter(e);
+        p.m.position.set(c.x + (Math.random() - 0.5) * 0.5, 0.35, c.z + (Math.random() - 0.5) * 0.5);
+        p.vy = 0.8 + Math.random() * 0.7; p.ph = Math.random() * 6.28;
+        p.life = 1.8 + Math.random() * 1.2; p.m.visible = true;
+      }
+    }
+    moteTimer = Math.max(0.06, 0.5 - gpus.length * 0.04);
+  }
+}
 
 /* ---------------- picking & input ---------------- */
 const raycaster = new THREE.Raycaster();
@@ -2618,6 +2696,16 @@ function animate(ts) {
     camera.position.y = 1.6 + bob;
     camera.position.x = Math.max(-26, Math.min(26, camera.position.x));
     camera.position.z = Math.max(-26, Math.min(26, camera.position.z));
+    /* crosshair readout: name whatever you're looking at */
+    if (fpLookEl) {
+      ndc.set(0, 0); raycaster.setFromCamera(ndc, camera);
+      const meshes = []; entMeshes.forEach(m => meshes.push(m));
+      const hit = raycaster.intersectObjects(meshes, true)[0];
+      let name = '';
+      if (hit) { let o = hit.object; while (o) { if (o.userData.entId !== undefined) { const e = S.ents.find(x => x.id === o.userData.entId); if (e) name = CAT[e.type].name + (e.installing ? ' · installing…' : e.online ? ' · online' : ''); break; } o = o.parent; } }
+      fpLookEl.textContent = name; fpLookEl.style.opacity = name ? '1' : '0';
+    }
+    if (fpHudEl) fpHudEl.innerHTML = '◈ GPUs online <b>' + (S.stats.online || 0) + '</b> &nbsp;·&nbsp; ⚡ <b>' + fmtData(S.processed || 0) + '</b>';
   } else if (camTween) {
     camTween.t += dt / camTween.dur;
     const x = Math.min(1, camTween.t);
@@ -2779,7 +2867,9 @@ function animate(ts) {
     }
   });
 
+  skyDome.position.copy(camera.position);   // keep the dome centred on the camera so it never clips
   updateSpace(dt, t);
+  updateMotes(dt, t);
   if (S.level.survival) updateSurvival(dt, t);
   else updateNetwork(dt);
   updatePulses(dt, ts);
