@@ -13,7 +13,7 @@ A browser game that teaches how data actually moves inside a data center — and
 
 ### 🧪 Advanced edition
 
-The flagship: a fork of the 3D edition grown into **one continuous world** — a single sea with **four small server islands**, each its own **biome** (meadow, desert, snow, volcanic). There's no separate "hall" view and no diving in and out. You **scroll to zoom** from a GPU close-up all the way out to the whole system, and hold **WASD** to glide across the sea from one island to the next. Everything you build lives on the one map.
+The flagship: a fork of the 3D edition set on a sea of **four small server islands**, each its own **biome** (meadow, desert, snow, volcanic). **Scroll to zoom** from a GPU close-up out to the whole system, and hold **WASD** to glide across the sea from one island to the next.
 
 - **Guided campaign.** Step-by-step objectives light up the current step and advance as you finish each one — *bring a GPU online → beat the CPU's 4-port limit with a PCIe switch → add CXL memory → build a second island's server → bridge two islands with a NIC-to-NIC ethernet cable → network the islands together → a humming 16-GPU floor*. Finishing an objective never wipes your progress.
 - **Progressive unlocks.** You start with only the basics (CPU, GPU, memory, trace) and **earn the rest by clearing objectives** — switches and retimers, then a memory controller, then the networking gear (NIC, AEC, AOC) and two operator upgrades. Each new unlock announces itself.
