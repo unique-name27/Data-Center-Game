@@ -394,6 +394,10 @@ function recompute() {
       e.online = r.types.has('cpu') && r.types.has('mem');
       if (e.online) { online++; tput += CAT.gpu.tput; }
     } else e.online = false;
+    if (e.type === 'gpu') {
+      if (e.online && !e._wasOnline && S._celebReady) celebrateOnline(e);   // just came online → celebrate
+      e._wasOnline = e.online;
+    }
   });
   const cpuReach = new Set();
   S.ents.filter(e => e.type === 'cpu' && !e.installing).forEach(cpu => reachTypes(cpu).seen.forEach(id => cpuReach.add(id)));
@@ -1048,7 +1052,7 @@ function placeWorkers() {
     const p = workerSpot(); wk.x = p.x; wk.z = p.z; wk.y = p.y;
     const t = workerSpot(); wk.tx = t.x; wk.tz = t.z; wk.pause = Math.random() * 1.5; wk.targetFix = t.fix; wk.fixing = false;
     wk.mesh.position.set(wk.x, wk.y, wk.z);
-    wk.mesh.scale.setScalar(p.s);
+    wk.mesh.scale.setScalar(p.s); wk.baseS = p.s; wk.hop = 0;
   });
 }
 /* parts you've dropped that still need a helper to walk over and set them up */
@@ -1056,11 +1060,16 @@ let installQueue = [];   // ent ids
 function entById(id) { return S.ents.find(e => e.id === id); }
 function finishInstall(id) {
   const e = entById(id);
-  if (e && e.installing) { e.installing = false; recompute(); }   // recompute → syncScene un-ghosts it
+  if (e && e.installing) { e.installing = false; burst(entCenter(e), 0xbfe8ff, 9, 1.0); sfxInstall(); recompute(); }   // recompute → syncScene un-ghosts it
 }
 function finishRepair(id) {
   const c = S.cables.find(x => x.id === id);
-  if (c && c.down) { c.down = false; recompute(); say('✓ Helper patched the link back up!'); }
+  if (c && c.down) {
+    c.down = false;
+    const A = entById(c.a), B = entById(c.b);
+    if (A && B) burst(entCenter(A).lerp(entCenter(B), 0.5), 0x2fc4b2, 12, 1.2);
+    sfxRepair(); recompute(); say('✓ Helper patched the link back up!');
+  }
 }
 /* which island pad a tile sits on (-1 = open water) */
 function padOf(i, j) { const pads = S && S.level.pads; if (!pads) return -1; return pads.findIndex(r => i >= r[0] && i <= r[2] && j >= r[1] && j <= r[3]); }
@@ -1131,6 +1140,9 @@ function completeJob(wk) {
 function updateWorkers(dt, t) {
   workers.forEach(wk => {
     if (!wk.mesh.visible) return;
+    /* a quick squash-and-pop bounce right after a helper finishes a job */
+    if (wk.hop > 0) { wk.hop -= dt; wk.mesh.scale.setScalar((wk.baseS || 0.5) * (1 + Math.abs(Math.sin(Math.max(0, wk.hop) / 0.45 * Math.PI)) * 0.4)); }
+    else if (wk.baseS) wk.mesh.scale.setScalar(wk.baseS);
     const wr = wk.mesh.userData.wrench;
     if (wk.pause > 0) {
       wk.pause -= dt;
@@ -1142,7 +1154,9 @@ function updateWorkers(dt, t) {
         wk.mesh.position.y = wk.y + Math.abs(Math.sin(t * 3 + wk.phase)) * 0.008;
       }
       if (wk.pause <= 0) {   // done working here
+        const hadJob = !!wk.job;
         completeJob(wk);
+        if (hadJob) wk.hop = 0.45;   // a happy little bounce after finishing a job
         if (!assignJob(wk)) { const nt = workerSpot(); wk.tx = nt.x; wk.tz = nt.z; wk.targetFix = nt.fix; wk.fixing = false; }
       }
       return;
@@ -2014,6 +2028,56 @@ function updateFx(dt) {
   });
   FX = FX.filter(p => !p.dead);
 }
+/* a small celebratory sparkle burst at a world point */
+function burst(pos, color, n, up) {
+  n = n || 12;
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2, elev = Math.random() * Math.PI / 2, spd = 1.4 + Math.random() * 2.4;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.05 + Math.random() * 0.03, 6, 6),
+      new THREE.MeshToonMaterial({ color, gradientMap: gradTex, emissive: color, emissiveIntensity: 1.3, transparent: true }));
+    m.position.set(pos.x, (pos.y || 0) + 0.25, pos.z); scene.add(m);
+    FX.push({ m, life: 0.55 + Math.random() * 0.4, max: 1.0, delay: 0,
+      v: new THREE.Vector3(Math.cos(a) * Math.cos(elev) * spd, Math.sin(elev) * spd + (up || 1.2), Math.sin(a) * Math.cos(elev) * spd) });
+  }
+}
+
+/* ---- tiny self-contained sound effects (own AudioContext, unlocked on first click) ---- */
+let sfxCtx = null, sfxGain = null, sfxOn = true;
+function sfxInit() {
+  if (sfxCtx) return;
+  try {
+    sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+    sfxGain = sfxCtx.createGain(); sfxGain.gain.value = 0.16; sfxGain.connect(sfxCtx.destination);
+  } catch (e) { sfxCtx = null; }
+}
+function blip(freq, dur, type, when, vol) {
+  if (!sfxOn || !sfxCtx) return;
+  const t = sfxCtx.currentTime + (when || 0);
+  const o = sfxCtx.createOscillator(), g = sfxCtx.createGain();
+  o.type = type || 'triangle'; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol || 0.9, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(sfxGain); o.start(t); o.stop(t + dur + 0.03);
+}
+function sfxOnline()  { sfxInit(); blip(523.25, 0.13, 'triangle', 0, 0.8); blip(659.25, 0.13, 'triangle', 0.07, 0.8); blip(783.99, 0.22, 'triangle', 0.14, 0.9); }
+function sfxInstall() { sfxInit(); blip(880, 0.05, 'sine', 0, 0.35); blip(1318.5, 0.07, 'sine', 0.04, 0.3); }
+function sfxRepair()  { sfxInit(); blip(392, 0.09, 'square', 0, 0.25); blip(587.33, 0.13, 'sine', 0.06, 0.5); }
+addEventListener('pointerdown', () => { sfxInit(); if (sfxCtx && sfxCtx.state === 'suspended') sfxCtx.resume(); });
+
+/* GPU just lit up: green sparkle + a little chime */
+function celebrateOnline(e) {
+  const p = entCenter(e); burst(p, 0x7dffb0, 16, 1.6); sfxOnline();
+}
+/* running "data processed" readout — throughput (Tb/s) integrated over time */
+let procDirty = 0;
+function fmtData(tb) {
+  const TB = tb / 8;
+  if (TB >= 1e6) return (TB / 1e6).toFixed(2) + ' EB';
+  if (TB >= 1000) return (TB / 1000).toFixed(2) + ' PB';
+  if (TB >= 1) return TB.toFixed(1) + ' TB';
+  return (TB * 1000).toFixed(0) + ' GB';
+}
 
 /* ---------------- picking & input ---------------- */
 const raycaster = new THREE.Raycaster();
@@ -2318,6 +2382,7 @@ function updateHUD() {
     if (S.level.islands) { label('mPower', 'Link power'); pw.textContent = hot ? hot + ' link' + (hot > 1 ? 's' : '') + ' overloaded' : S.stats.watts + ' W'; pw.classList.toggle('bad', hot > 0); }
     else { label('mPower', 'Link power'); pw.textContent = S.stats.watts + ' W'; pw.classList.remove('bad'); }
   }
+  const mp = $('mProc'); if (mp) mp.textContent = fmtData(S.processed || 0);
   $('levelName').textContent = S.level.title;
   const mode = $('btnMode');
   mode.textContent = S.level.campaign ? '⚒ Free build' : '▶ Campaign';
@@ -2511,6 +2576,7 @@ function startLevel(idx) {
     camera.position.set(c.x, 9, c.z + 7.5);
     controls.update();
   }
+  S._celebReady = true;   // from here on, a GPU lighting up is worth celebrating
 }
 
 $('btnMode').onclick = () => startLevel(S.level.campaign ? freeBuildIdx() : campaignIdx());
@@ -2583,6 +2649,8 @@ function animate(ts) {
   }
   updateWorkers(dt, t);
   scaleMiniServers();
+  /* tick up the running "data processed" total from live throughput */
+  if (S.stats && S.stats.tput > 0) { S.processed = (S.processed || 0) + S.stats.tput * dt; procDirty += dt; if (procDirty > 0.2) { procDirty = 0; const mp = $('mProc'); if (mp) mp.textContent = fmtData(S.processed); } }
 
   /* smooth entity motion + drag follow */
   S.ents.forEach(e => {
