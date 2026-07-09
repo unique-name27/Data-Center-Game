@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 /* Data Center Tycoon 3D — Connectivity Edition
    Cozy toon-shaded diorama: build a GPU server on a little green island.
@@ -563,9 +567,38 @@ const planet = (() => {
   g.add(body, ring); g.position.set(64, 30, -120); g.visible = false; scene.add(g); return g;
 })();
 
+/* a glowing Milky-Way band arcing across the sky — space only */
+const milkyWay = (() => {
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const g = cv.getContext('2d');
+  const grd = g.createLinearGradient(0, 0, 0, 256);
+  grd.addColorStop(0, 'rgba(120,130,255,0)'); grd.addColorStop(0.44, 'rgba(150,140,235,0.10)');
+  grd.addColorStop(0.5, 'rgba(220,210,255,0.42)'); grd.addColorStop(0.56, 'rgba(150,140,235,0.10)');
+  grd.addColorStop(1, 'rgba(120,130,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 1024, 256);
+  for (let k = 0; k < 1400; k++) {
+    const yy = 128 + (Math.random() - 0.5) * (60 + Math.random() * 90);
+    g.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.7) + ')';
+    g.fillRect(Math.random() * 1024, yy, Math.random() < 0.1 ? 2 : 1, Math.random() < 0.1 ? 2 : 1);
+  }
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(340, 96),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  m.position.set(0, 66, -40); m.rotation.set(-0.55, 0.25, 0.5); m.visible = false; scene.add(m); return m;
+})();
+
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 600);   // headroom for the sky dome + planet
 camera.position.set(0, 14.5, 12.5);
 camera.lookAt(0, 0, 0.6);
+
+/* ---- bloom post-processing: makes every emissive thing (pulses, motes, online
+   glows, lava, stars) actually glow. Threshold keeps the toon solids matte. ---- */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+/* strength, radius, threshold — threshold high so only bright emissives (pulses,
+   motes, glows, lava, stars) bloom and the matte toon surfaces stay clean */
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(stage.clientWidth || 1, stage.clientHeight || 1), 0.85, 0.55, 0.9);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+window.G3D_bloom = bloomPass;   // easy live-tuning: G3D_bloom.strength / .radius / .threshold
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0.6);
@@ -1309,6 +1342,7 @@ function setSpaceMode(on) {
   scene.fog.near = on ? 34 : 30; scene.fog.far = on ? 90 : 70;
   skyDome.material.map = on ? spaceSkyTex : daySkyTex; skyDome.material.needsUpdate = true;
   planet.visible = on;
+  milkyWay.visible = on;
   sunSprite.visible = !on;
   starfield.visible = on;
   brightStars.visible = on;
@@ -2156,6 +2190,31 @@ function updateMotes(dt, t) {
     moteTimer = Math.max(0.06, 0.5 - gpus.length * 0.04);
   }
 }
+/* ---- soft glow halos under online GPUs — really pop with bloom ---- */
+const glowTex = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(0.7, 'rgba(255,255,255,0.14)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(cv);
+})();
+const gpuGlows = [];
+for (let i = 0; i < 44; i++) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x8dffbf, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  s.visible = false; scene.add(s); gpuGlows.push(s);
+}
+function updateGlows(t) {
+  if (!S) { gpuGlows.forEach(s => s.visible = false); return; }
+  let gi = 0;
+  S.ents.forEach(e => {
+    if (e.type !== 'gpu' || !e.online || gi >= gpuGlows.length) return;
+    const s = gpuGlows[gi++], c = entCenter(e), k = 1.5 + Math.sin(t * 3 + e.id) * 0.28;
+    s.position.set(c.x, 0.5, c.z); s.scale.set(k, k, 1);
+    s.material.opacity = 0.5 + Math.sin(t * 3 + e.id) * 0.12; s.visible = true;
+  });
+  for (; gi < gpuGlows.length; gi++) gpuGlows[gi].visible = false;
+}
 
 /* ---------------- picking & input ---------------- */
 const raycaster = new THREE.Raycaster();
@@ -2668,6 +2727,8 @@ $('lvlSel').onchange = ev => startLevel(parseInt(ev.target.value, 10));
 function resize() {
   const w = stage.clientWidth, h = stage.clientHeight;
   renderer.setSize(w, h);
+  composer.setSize(w, h);
+  bloomPass.resolution.set(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -2870,13 +2931,14 @@ function animate(ts) {
   skyDome.position.copy(camera.position);   // keep the dome centred on the camera so it never clips
   updateSpace(dt, t);
   updateMotes(dt, t);
+  updateGlows(t);
   if (S.level.survival) updateSurvival(dt, t);
   else updateNetwork(dt);
   updatePulses(dt, ts);
   updateElastics();
   updateFx(dt);
   updateCoach(dt);
-  renderer.render(scene, camera);
+  composer.render();
 }
 
 /* ---------------- fun facts ---------------- */
