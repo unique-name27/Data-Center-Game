@@ -131,7 +131,7 @@ const MAP_PADS = [[3, 3, 14, 10], [25, 3, 36, 10], [3, 19, 14, 26], [25, 19, 36,
 
 const LEVELS = [
   {
-    title: 'Campaign — four islands, one map', campaign: true,
+    title: 'Campaign — four island servers', campaign: true,
     gw: MAP_GW, gh: MAP_GH, pads: MAP_PADS,
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [{ t: 'cpu', i: 8, j: 6 }],
@@ -151,9 +151,9 @@ const LEVELS = [
       { text: 'A humming, fully-networked floor — 16 GPUs online', check: s => s.stats.online >= 16,
         hint: 'Fill out all four islands, keep them networked, and let the helpers maintain the links. Retimers and AOC keep the long runs alive.' }
     ],
-    lesson: `<h2>Advanced — four islands, one map</h2>
-      <p>The map is <b>four little server islands</b> on one sea — all one continuous world, no separate views. You start focused on the <b>first island</b>: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
-      <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea to the next island and build its server too. Everything lives on this one map.</p>
+    lesson: `<h2>Advanced — four island servers</h2>
+      <p>You've got <b>four little server islands</b> on a sea. You start focused on the <b>first one</b>: place a <b>CPU</b>, a <b>GPU</b> and a <b>DIMM</b> and wire them with <b>PCIe traces</b> to bring a GPU online.</p>
+      <p><b>Scroll to zoom</b> from a GPU close-up out to all four islands, and hold <b>WASD</b> to glide across the sea to the next island and build its server too.</p>
       <p>Every part you drop lands as a <b>see-through ghost</b> — one of your <b>helper</b> animals trots over, sets it up, and only then does it turn solid and start working.</p>
       <p>You start with just the basics. <b>New parts and upgrades unlock as you clear objectives</b> — switches and retimers first, then memory controllers, and finally the networking gear that ties the islands together.</p>
       <p>Later on you'll <b>network the islands together</b>: drop a <b>NIC</b> on each server, wire it inward, then run an <b>AEC/AOC ethernet cable</b> from one island's NIC to another. Those links across the water <b>drop now and then</b> — your helpers keep an eye out and trot over to repair them.</p>
