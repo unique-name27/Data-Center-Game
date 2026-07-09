@@ -140,19 +140,19 @@ const LEVELS = [
     tools: ['gpu', 'cpu', 'mem', 'pswitch', 'memctl', 'nic', 'trace', 'aecb', 'aocb', 'retimer'],
     pre: [{ t: 'cpu', i: 8, j: 6 }],
     goals: [
-      { text: 'Bring your first GPU online (it needs a CPU + memory)', check: s => s.stats.online >= 1,
+      { text: 'Bring your first GPU online (it needs a CPU + memory)', check: s => s.stats.online >= 1, prog: s => [s.stats.online, 1],
         hint: 'Place a <b>DIMM</b> and a <b>GPU</b> next to the CPU, pick <b>Trace</b>, and wire each to the CPU. A GPU only lights up when it can reach a CPU <i>and</i> memory.' },
-      { text: 'Beat the 4-port limit — 6 GPUs online through a PCIe switch', check: s => s.stats.online >= 6 && s.stats.switchUsed,
-        hint: 'A CPU has only 4 ports. Place a <b>PCIe switch</b>, trace the CPU to it, then hang your GPUs off the switch.' },
+      { text: 'Beat the 4-port limit — 6 GPUs online through a PCIe switch', check: s => s.stats.online >= 6 && s.stats.switchUsed, prog: s => [s.stats.online, 6],
+        hint: 'A CPU has only 4 ports. Place a <b>PCIe switch</b>, trace the CPU to it, then hang your GPUs off the switch. Watch for any <b style="color:#e05555">red</b> (dead) wire — a run that’s a tile too long drops that GPU; shorten it or drop a <b>retimer</b>.' },
       { text: 'Add more memory with a CXL controller', check: s => s.stats.memctlUsed,
         hint: 'Place a <b>CXL controller</b>, wire it to the CPU or switch, then trace <b>DIMMs</b> to it to add memory beyond the CPU’s slots.' },
-      { text: 'Build a second island’s server — 8 GPUs online', check: s => s.stats.online >= 8,
+      { text: 'Build a second island’s server — 8 GPUs online', check: s => s.stats.online >= 8, prog: s => [s.stats.online, 8],
         hint: 'Hold <b>WASD</b> to glide across the sea to another island and build another CPU + GPUs + memory. Long runs fade — drop <b>retimers</b> on the wire.' },
       { text: 'Bridge two islands — a NIC↔NIC ethernet link (AEC/AOC)', check: s => s.cables.some(isEthernetLink),
         hint: 'Put a <b>NIC</b> on each of two islands’ servers and trace it to the CPU/switch. Then pick <b>AEC</b> or <b>AOC</b>, click one island’s NIC, and click the other island’s NIC to run an ethernet cable across the water.' },
-      { text: 'Grow the fabric — network three islands together', check: s => activeIslands(s).length >= 3 && islandsNetworked(s),
+      { text: 'Grow the fabric — network three islands together', check: s => activeIslands(s).length >= 3 && islandsNetworked(s), prog: s => [activeIslands(s).length, 3],
         hint: 'Build a server on a third island, give it a NIC, and cable it into the mesh. Links across the water drop now and then — your <b>helper</b> animals trot over and patch them.' },
-      { text: 'A humming, fully-networked floor — 16 GPUs online', check: s => s.stats.online >= 16,
+      { text: 'A humming, fully-networked floor — 16 GPUs online', check: s => s.stats.online >= 16, prog: s => [s.stats.online, 16],
         hint: 'Fill out all four islands, keep them networked, and let the helpers maintain the links. Retimers and AOC keep the long runs alive.' }
     ],
     lesson: `<h2>Advanced — four island servers</h2>
@@ -2554,9 +2554,11 @@ function updateGoals() {
   S.level.goals.forEach(g => {
     const li = document.createElement('li');
     const ok = g.check(S);
-    if (ok) { li.className = 'done'; li.textContent = '✓ ' + g.text; }
-    else if (!markedCurrent) { li.className = 'current'; li.textContent = '▸ ' + g.text; markedCurrent = true; }
-    else { li.textContent = '○ ' + g.text; }
+    let txt = g.text;
+    if (!ok && g.prog) { const p = g.prog(S); txt += ` — <b>${p[0]}/${p[1]}</b>`; }
+    if (ok) { li.className = 'done'; li.innerHTML = '✓ ' + g.text; }
+    else if (!markedCurrent) { li.className = 'current'; li.innerHTML = '▸ ' + txt; markedCurrent = true; }
+    else { li.innerHTML = '○ ' + txt; }
     ul.appendChild(li);
   });
 }
