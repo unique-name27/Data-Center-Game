@@ -261,6 +261,16 @@ let toastTimer = 0;
 let idSeq = 1;
 let advanceTimer = 0;
 
+/* ---------------- co-op (serverless P2P) plumbing ---------------- */
+let netTag = '';            // per-player id prefix so ids never collide between peers
+function newId() { return netTag ? netTag + '-' + (idSeq++) : idSeq++; }
+let applyingRemote = false; // true while applying a peer's action, so we don't echo it back
+const net = {
+  active: false, room: null, selfId: null, host: false, peers: {},
+  name: 'Player', color: 0x57e389, _act: null, _pres: null,
+  act(m) { if (this.active && this._act && !applyingRemote) this._act(m); }
+};
+
 function newLevelState(idx) {
   const L = LEVELS[idx];
   const s = {
@@ -459,18 +469,21 @@ function tryPlaceEnt(type, i, j) {
     return say((s[0] > 1 || s[1] > 1) ? 'This part is 2×2 — needs a clear square with room on the board.' : 'That spot is occupied.');
   }
   if (isIsland(type) && !islandSpaced(i, j)) return say('Islands need elbow room — drop it a few tiles from the others.');
-  const ne = { id: idSeq++, type, i, j, installing: true };
+  const ne = { id: newId(), type, i, j, installing: !net.active };   // in co-op parts install instantly (keeps peers in sync)
   S.ents.push(ne);
   recompute();
   sendInstaller(ne);
+  net.act({ k: 'place', e: { id: ne.id, type, i, j } });
   if (isIsland(type)) refreshIslands();
 }
 function tryPlaceRet(cableId, t) {
   const c = S.cables.find(x => x.id === cableId);
   if (!c) return say('Hover over a wire, then click to add a retimer.');
   if (!CAB[c.type].retime) return say(`${CAB[c.type].name} already has retimers built into its plugs.`);
-  S.retimers.push({ id: idSeq++, cableId, t });
+  const r = { id: newId(), cableId, t };
+  S.retimers.push(r);
   recompute();
+  net.act({ k: 'ret', r });
 }
 function portCount(e) { return S.cables.filter(c => c.a === e.id || c.b === e.id).length; }
 function tryCable(type, A, B) {
@@ -481,8 +494,10 @@ function tryCable(type, A, B) {
     return say('Links to other racks are real cables — use an AEC or AOC, not a board trace.');
   if (portCount(A) >= CAT[A.type].ports) return say(`${CAT[A.type].name} is out of ports.`);
   if (portCount(B) >= CAT[B.type].ports) return say(`${CAT[B.type].name} is out of ports.`);
-  S.cables.push({ id: idSeq++, type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 });
+  const nc = { id: newId(), type, a: A.id, b: B.id, path: lPath(A, B), pulses: [], nextPulse: 0 };
+  S.cables.push(nc);
   recompute();
+  net.act({ k: 'cable', c: { id: nc.id, type, a: A.id, b: B.id } });
 }
 function moveEnt(ent, i, j) {
   if (ent.locked) return say('That one is fixed — it can’t be moved.');
@@ -498,23 +513,28 @@ function moveEnt(ent, i, j) {
     }
   });
   recompute();
+  net.act({ k: 'move', id: ent.id, i, j });
   if (isIsland(ent.type)) refreshIslands();
 }
 function removeThing(th) {
-  let wasIsland = false;
+  let wasIsland = false, act = null;
   if (th.kind === 'ent') {
     if (th.ent.locked) return say('That one came with the board — it stays.');
     wasIsland = isIsland(th.ent.type);
     S.cables = S.cables.filter(c => c.a !== th.ent.id && c.b !== th.ent.id);
     S.ents = S.ents.filter(e => e !== th.ent);
+    act = { k: 'rm', kind: 'ent', id: th.ent.id };
   } else if (th.kind === 'cable') {
     S.cables = S.cables.filter(c => c !== th.cable);
     S.retimers = S.retimers.filter(r => r.cableId !== th.cable.id);   // its retimers go with it
+    act = { k: 'rm', kind: 'cable', id: th.cable.id };
   } else if (th.kind === 'ret') {
     S.retimers = S.retimers.filter(r => r !== th.ret);
+    act = { k: 'rm', kind: 'ret', id: th.ret.id };
   }
   S.selected = null;
   recompute();
+  if (act) net.act(act);
   if (wasIsland) refreshIslands();
 }
 
@@ -2264,6 +2284,7 @@ const dom = renderer.domElement;
 dom.addEventListener('pointermove', ev => {
   const t = tileFromPointer(ev);
   hoverTile = t;
+  if (net.active && t) net.cursor = { x: t.x, z: t.z };
   if (cableDrag) {
     if (!cableDrag.moved && Math.hypot(ev.clientX - cableDrag.sx, ev.clientY - cableDrag.sy) > 5) cableDrag.moved = true;
     updateCablePreview(ev);
@@ -2935,7 +2956,8 @@ function animate(ts) {
   updateMotes(dt, t);
   updateGlows(t);
   if (S.level.survival) updateSurvival(dt, t);
-  else updateNetwork(dt);
+  else if (!net.active) updateNetwork(dt);   // co-op v1 keeps the fabric calm (no random drops to desync)
+  updateCoop(dt);
   updatePulses(dt, ts);
   updateElastics();
   updateFx(dt);
@@ -3139,5 +3161,160 @@ window.G3D = {
   scaleMiniServers, get miniGroup() { return miniGroup; }, controls,
   updateWorkers, finishInstall, updateNetwork, isNetLink, isEthernetLink, islandsNetworked, activeIslands,
   get cableRoutes() { return cableRoutes; },
-  LEVELS, CAT, CAB, entMeshes, scene, camera, renderer
+  LEVELS, CAT, CAB, entMeshes, scene, camera, renderer,
+  get net() { return net; }, coopJoin, coopLeave, applyRemote, applyFullState, serializeBuild
 };
+
+/* ================= CO-OP: serverless P2P shared build ================= */
+const PLAYER_COLORS = [0x57e389, 0xf5c542, 0x4a9df0, 0xf06ab8, 0xf08a3c, 0x9a6bff, 0x36d6cf, 0xff7a5c];
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
+function coopTextSprite(text, hex) {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const g = cv.getContext('2d');
+  g.fillStyle = 'rgba(10,18,36,0.72)';
+  const w = 240, x = (256 - w) / 2; g.beginPath(); g.roundRect(x, 14, w, 40, 12); g.fill();
+  g.font = 'bold 26px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#' + (hex >>> 0).toString(16).padStart(6, '0');
+  g.fillText((text || 'Player').slice(0, 14), 128, 35);
+  const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+  sp.scale.set(2.3, 0.58, 1); return sp;
+}
+function makePlayerMarker(hex, name) {
+  const group = new THREE.Group();
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.6, 6), new THREE.MeshBasicMaterial({ color: hex }));
+  cone.rotation.x = Math.PI; cone.position.y = 0.85;
+  const label = coopTextSprite(name, hex); label.position.y = 1.6;
+  group.add(cone, label); scene.add(group);
+  return { group, cone, label, tx: 0, tz: 0, bob: Math.random() * 6.28, color: hex, name };
+}
+function removePeer(peer) { const pr = net.peers[peer]; if (pr) { scene.remove(pr.group); delete net.peers[peer]; } }
+function updatePeerPresence(peer, p) {
+  let pr = net.peers[peer];
+  if (!pr) pr = net.peers[peer] = makePlayerMarker(p.color != null ? p.color : 0xffffff, p.name || 'Player');
+  pr.tx = p.x || 0; pr.tz = p.z || 0;
+  if (p.name && p.name !== pr.name) { pr.name = p.name; pr.group.remove(pr.label); pr.label = coopTextSprite(p.name, pr.color); pr.label.position.y = 1.6; pr.group.add(pr.label); }
+  coopStatus();
+}
+function serializeBuild() {
+  return {
+    ents: S.ents.map(e => ({ id: e.id, type: e.type, i: e.i, j: e.j })),
+    cables: S.cables.map(c => ({ id: c.id, type: c.type, a: c.a, b: c.b })),
+    retimers: S.retimers.map(r => ({ id: r.id, cableId: r.cableId, t: r.t }))
+  };
+}
+function applyFullState(st) {
+  if (!st) return;
+  applyingRemote = true;
+  try {
+    S.ents = st.ents.map(e => ({ id: e.id, type: e.type, i: e.i, j: e.j }));
+    S.cables = st.cables.map(c => { const A = S.ents.find(x => x.id === c.a), B = S.ents.find(x => x.id === c.b); return (A && B) ? { id: c.id, type: c.type, a: c.a, b: c.b, path: lPath(A, B), pulses: [], nextPulse: 0 } : null; }).filter(Boolean);
+    S.retimers = st.retimers.map(r => ({ id: r.id, cableId: r.cableId, t: r.t })).filter(r => S.cables.some(c => c.id === r.cableId));
+  } finally { applyingRemote = false; }
+  recompute();
+}
+function applyRemote(m) {
+  if (!m || !S) return;
+  applyingRemote = true;
+  try {
+    if (m.k === 'place') { if (!S.ents.some(e => e.id === m.e.id)) S.ents.push({ id: m.e.id, type: m.e.type, i: m.e.i, j: m.e.j }); }
+    else if (m.k === 'cable') { const A = S.ents.find(x => x.id === m.c.a), B = S.ents.find(x => x.id === m.c.b); if (A && B && !S.cables.some(c => c.id === m.c.id)) S.cables.push({ id: m.c.id, type: m.c.type, a: m.c.a, b: m.c.b, path: lPath(A, B), pulses: [], nextPulse: 0 }); }
+    else if (m.k === 'ret') { if (!S.retimers.some(r => r.id === m.r.id) && S.cables.some(c => c.id === m.r.cableId)) S.retimers.push({ id: m.r.id, cableId: m.r.cableId, t: m.r.t }); }
+    else if (m.k === 'move') { const e = S.ents.find(x => x.id === m.id); if (e) { e.i = m.i; e.j = m.j; S.cables.forEach(c => { if (c.a === e.id || c.b === e.id) { const A = S.ents.find(x => x.id === c.a), B = S.ents.find(x => x.id === c.b); c.path = lPath(A, B); c.pulses = []; } }); } }
+    else if (m.k === 'rm') {
+      if (m.kind === 'ent') { S.cables = S.cables.filter(c => c.a !== m.id && c.b !== m.id); S.ents = S.ents.filter(e => e.id !== m.id); }
+      else if (m.kind === 'cable') { S.cables = S.cables.filter(c => c.id !== m.id); S.retimers = S.retimers.filter(r => r.cableId !== m.id); }
+      else if (m.kind === 'ret') { S.retimers = S.retimers.filter(r => r.id !== m.id); }
+    }
+  } finally { applyingRemote = false; }
+  recompute();
+}
+async function coopJoin(code, name) {
+  if (net.active) return;
+  try {
+    const mod = await import('https://esm.sh/trystero@0.20.0/nostr');
+    const joinRoom = mod.joinRoom, selfId = mod.selfId;
+    net.selfId = selfId;
+    net.name = (name || '').trim() || ('Player-' + selfId.slice(0, 4));
+    net.color = PLAYER_COLORS[Math.abs(hashStr(selfId)) % PLAYER_COLORS.length];
+    netTag = selfId.slice(0, 5);
+    net.gotState = false;
+    startLevel(freeBuildIdx());   // everyone shares the same Free-build islands
+    const room = joinRoom({ appId: 'data-center-tycoon-coop' }, code.trim());
+    net.room = room; net.active = true; net.code = code.trim();
+    const [sendAct, getAct] = room.makeAction('act');
+    const [sendPres, getPres] = room.makeAction('pres');
+    const [sendState, getState] = room.makeAction('state');
+    const [sendHello, getHello] = room.makeAction('hello');
+    net._act = sendAct; net._pres = sendPres;
+    getAct(m => applyRemote(m));
+    getPres((p, peer) => updatePeerPresence(peer, p));
+    getState(st => { if (!net.gotState) { net.gotState = true; applyFullState(st); coopStatus(); } });
+    getHello((_, peer) => sendState(serializeBuild(), peer));   // an existing member answers a newcomer's request
+    room.onPeerJoin(() => coopStatus());
+    room.onPeerLeave(peer => { removePeer(peer); coopStatus(); });
+    sendHello(1);                 // ask whoever's already here for the current build
+    coopStatus();
+    say('🌐 Co-op “' + net.code + '” — share the code so friends can build alongside you.');
+  } catch (e) {
+    console.warn('coop join failed', e);
+    say('Co-op couldn’t connect — check your connection and try again.');
+    net.active = false; netTag = '';
+  }
+}
+function coopLeave() {
+  if (!net.active) return;
+  try { net.room && net.room.leave(); } catch (e) {}
+  Object.keys(net.peers).forEach(removePeer);
+  net.active = false; net.room = null; net._act = null; netTag = '';
+  coopStatus();
+  say('Left the co-op room.');
+}
+let _presT = 0;
+function updateCoop(dt) {
+  if (!net.active) return;
+  _presT -= dt;
+  if (_presT <= 0 && net._pres) { const c = net.cursor || { x: 0, z: 0 }; net._pres({ x: c.x, z: c.z, name: net.name, color: net.color }); _presT = 0.11; }
+  const tt = performance.now() / 1000;
+  Object.values(net.peers).forEach(pr => {
+    const g = pr.group;
+    g.position.x += (pr.tx - g.position.x) * Math.min(1, dt * 10);
+    g.position.z += (pr.tz - g.position.z) * Math.min(1, dt * 10);
+    pr.cone.position.y = 0.85 + Math.sin(tt * 3 + pr.bob) * 0.09;
+  });
+}
+function coopStatus() {
+  const el = document.getElementById('coopStatus');
+  const jb = document.getElementById('coopJoinBtn'), lb = document.getElementById('coopLeaveBtn'), bt = document.getElementById('btnCoop');
+  if (!el) return;
+  if (net.active) {
+    const n = Object.keys(net.peers).length + 1;
+    el.innerHTML = '<b style="color:#57e389">● Connected</b> · room <b>' + (net.code || '') + '</b> · ' + n + ' player' + (n > 1 ? 's' : '');
+    if (jb) jb.style.display = 'none'; if (lb) lb.style.display = '';
+    if (bt) bt.classList.add('on');
+  } else {
+    el.textContent = ''; if (jb) jb.style.display = ''; if (lb) lb.style.display = 'none';
+    if (bt) bt.classList.remove('on');
+  }
+}
+/* co-op HUD button + panel */
+(function () {
+  const panel = document.createElement('div'); panel.id = 'coopPanel'; panel.style.display = 'none';
+  panel.innerHTML =
+    '<div class="coopHead">🌐 Co-op — build together</div>' +
+    '<label>Your name<input id="coopName" maxlength="14" placeholder="Player"></label>' +
+    '<label>Room code<input id="coopCode" maxlength="16" placeholder="e.g. islands42"></label>' +
+    '<div class="coopRow"><button id="coopJoinBtn">Join / create</button><button id="coopLeaveBtn" style="display:none">Leave</button></div>' +
+    '<div id="coopStatus" class="coopStatus"></div>' +
+    '<div class="coopNote">Serverless peer-to-peer — pick any room code and share it with a friend to build the same islands together (Free build). Best with 2–6 players; needs an internet connection.</div>';
+  (document.getElementById('stage3d') || document.body).appendChild(panel);
+  const btn = document.createElement('button'); btn.id = 'btnCoop'; btn.type = 'button'; btn.title = 'Co-op — build with friends';
+  btn.textContent = '🌐 Co-op';
+  btn.onclick = () => { panel.style.display = panel.style.display === 'none' ? '' : 'none'; };
+  const host = document.getElementById('hudBtns'); if (host) host.insertBefore(btn, host.firstChild);
+  panel.querySelector('#coopJoinBtn').onclick = () => {
+    const code = (panel.querySelector('#coopCode').value || '').trim();
+    if (!code) { say('Pick a room code first.'); return; }
+    coopJoin(code, panel.querySelector('#coopName').value);
+  };
+  panel.querySelector('#coopLeaveBtn').onclick = coopLeave;
+})();
