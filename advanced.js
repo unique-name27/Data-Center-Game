@@ -3162,7 +3162,7 @@ window.G3D = {
   updateWorkers, finishInstall, updateNetwork, isNetLink, isEthernetLink, islandsNetworked, activeIslands,
   get cableRoutes() { return cableRoutes; },
   LEVELS, CAT, CAB, entMeshes, scene, camera, renderer,
-  get net() { return net; }, coopJoin, coopLeave, applyRemote, applyFullState, serializeBuild
+  get net() { return net; }, coopJoin, coopLeave, applyRemote, applyFullState, mergeState, serializeBuild
 };
 
 /* ================= CO-OP: serverless P2P shared build ================= */
@@ -3212,6 +3212,19 @@ function applyFullState(st) {
   } finally { applyingRemote = false; }
   recompute();
 }
+/* heal any missed one-shot actions: fold in anything from a peer's full state we
+   don't already have (adds only — never fights a local move, never deletes) */
+function mergeState(st) {
+  if (!st || !S) return;
+  let changed = false;
+  applyingRemote = true;
+  try {
+    (st.ents || []).forEach(e => { if (!S.ents.some(x => x.id === e.id)) { S.ents.push({ id: e.id, type: e.type, i: e.i, j: e.j }); changed = true; } });
+    (st.cables || []).forEach(c => { if (!S.cables.some(x => x.id === c.id)) { const A = S.ents.find(x => x.id === c.a), B = S.ents.find(x => x.id === c.b); if (A && B) { S.cables.push({ id: c.id, type: c.type, a: c.a, b: c.b, path: lPath(A, B), pulses: [], nextPulse: 0 }); changed = true; } } });
+    (st.retimers || []).forEach(r => { if (!S.retimers.some(x => x.id === r.id) && S.cables.some(c => c.id === r.cableId)) { S.retimers.push({ id: r.id, cableId: r.cableId, t: r.t }); changed = true; } });
+  } finally { applyingRemote = false; }
+  if (changed) recompute();
+}
 function applyRemote(m) {
   if (!m || !S) return;
   applyingRemote = true;
@@ -3245,13 +3258,15 @@ async function coopJoin(code, name) {
     const [sendPres, getPres] = room.makeAction('pres');
     const [sendState, getState] = room.makeAction('state');
     const [sendHello, getHello] = room.makeAction('hello');
-    net._act = sendAct; net._pres = sendPres;
+    const [sendSync, getSync] = room.makeAction('sync');
+    net._act = sendAct; net._pres = sendPres; net._sync = sendSync;
     getAct(m => applyRemote(m));
     getPres((p, peer) => updatePeerPresence(peer, p));
     getState(st => { if (!net.gotState) { net.gotState = true; applyFullState(st); coopStatus(); } });
     getHello((_, peer) => sendState(serializeBuild(), peer));   // an existing member answers a newcomer's request
-    room.onPeerJoin(() => coopStatus());
-    room.onPeerLeave(peer => { removePeer(peer); coopStatus(); });
+    getSync(st => mergeState(st));   // continuous heal for any dropped/late one-shot action
+    room.onPeerJoin(peer => { say('🌐 A player joined — ' + (peerCount() + 1) + ' here now.'); if (net._sync) net._sync(serializeBuild()); coopStatus(); });
+    room.onPeerLeave(peer => { removePeer(peer); say('A player left the room.'); coopStatus(); });
     sendHello(1);                 // ask whoever's already here for the current build
     coopStatus();
     say('🌐 Co-op “' + net.code + '” — share the code so friends can build alongside you.');
@@ -3269,11 +3284,17 @@ function coopLeave() {
   coopStatus();
   say('Left the co-op room.');
 }
-let _presT = 0;
+function peerCount() {
+  try { if (net.room && net.room.getPeers) return Object.keys(net.room.getPeers()).length; } catch (e) {}
+  return Object.keys(net.peers).length;
+}
+let _presT = 0, _syncT = 1;
 function updateCoop(dt) {
   if (!net.active) return;
   _presT -= dt;
   if (_presT <= 0 && net._pres) { const c = net.cursor || { x: 0, z: 0 }; net._pres({ x: c.x, z: c.z, name: net.name, color: net.color }); _presT = 0.11; }
+  _syncT -= dt;   // gossip full state so any dropped/late one-shot action heals
+  if (_syncT <= 0 && net._sync) { net._sync(serializeBuild()); _syncT = 1.5; }
   const tt = performance.now() / 1000;
   Object.values(net.peers).forEach(pr => {
     const g = pr.group;
@@ -3287,8 +3308,8 @@ function coopStatus() {
   const jb = document.getElementById('coopJoinBtn'), lb = document.getElementById('coopLeaveBtn'), bt = document.getElementById('btnCoop');
   if (!el) return;
   if (net.active) {
-    const n = Object.keys(net.peers).length + 1;
-    el.innerHTML = '<b style="color:#57e389">● Connected</b> · room <b>' + (net.code || '') + '</b> · ' + n + ' player' + (n > 1 ? 's' : '');
+    const n = peerCount() + 1;
+    el.innerHTML = (n > 1 ? '<b style="color:#57e389">● Connected</b>' : '<b style="color:#f5c542">● Waiting for a friend…</b>') + ' · room <b>' + (net.code || '') + '</b> · ' + n + ' player' + (n > 1 ? 's' : '');
     if (jb) jb.style.display = 'none'; if (lb) lb.style.display = '';
     if (bt) bt.classList.add('on');
   } else {
